@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""Build a fully static copy of the simulator for GitHub Pages.
+"""Build the deployable simulator.
 
-GitHub Pages can only serve files — it cannot run Flask. The simulator therefore
-ships a browser mirror of the Python model (static/js/engine.js), and this script
-assembles both into a single self-contained directory that works from a sub-path
-such as https://<user>.github.io/<repo>/.
+GitHub Pages can only serve static files, so the simulator ships a browser mirror
+of the Python model (static/js/engine.js). This script produces two artefacts:
 
-Two outputs are produced so the site works with *either* Pages configuration:
+1. ``index.html`` (repo root) — a SINGLE self-contained file with the CSS and the
+   whole JS bundle inlined. No module loading, no extra requests, no MIME or path
+   issues. This is what GitHub Pages serves, and it also opens correctly straight
+   from disk (``file://``) for offline demos.
 
-1. `_site/` — self-contained bundle for the Actions-based Pages workflow.
-2. Root-level `index.html`, `404.html`, `.nojekyll` — for GitHub Pages in
-   "legacy" mode (Deploy from a branch -> main -> /), which serves the repo root
-   directly and therefore needs an index.html there.
-
-Both contain the identical app; only the asset paths differ.
+2. ``_site/`` — the same app as separate files, for hosts that prefer it (and for
+   the GitHub Actions Pages workflow).
 
 Run:  python build_static.py
 """
@@ -21,6 +18,7 @@ Run:  python build_static.py
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 
@@ -28,15 +26,10 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
 OUT = os.path.join(ROOT, "_site")
 
-REQUIRED = [
-    "index.html",
-    "css/styles.css",
-    "js/app.js",
-    "js/charts.js",
-    "js/engine.js",
-    "js/client.js",
-    "js/scenarios.js",
-]
+#: modules in dependency order — each one only needs the ones before it
+MODULES = ["charts.js", "engine.js", "scenarios.js", "client.js", "app.js"]
+
+REQUIRED = ["index.html", "css/styles.css"] + [f"js/{m}" for m in MODULES]
 
 REDIRECT = """<!DOCTYPE html>
 <html lang="en">
@@ -60,85 +53,219 @@ REDIRECT = """<!DOCTYPE html>
 </html>
 """
 
+# --------------------------------------------------------------------------- #
+# ES module bundler
+# --------------------------------------------------------------------------- #
 
-def check_sources() -> None:
-    missing = [f for f in REQUIRED if not os.path.exists(os.path.join(STATIC, f))]
-    if missing:
-        sys.exit(f"ERROR: missing source files: {', '.join(missing)}")
+IMPORT_RE = re.compile(
+    r"^import\s[\s\S]*?from\s*[\"'][^\"']+[\"'];?[ \t]*$", re.MULTILINE
+)
+EXPORT_DECL_RE = re.compile(
+    r"^export\s+(async\s+function|function|class|const|let|var)\s+([A-Za-z0-9_$]+)",
+    re.MULTILINE,
+)
+NAMED_IMPORT_RE = re.compile(
+    r"^import\s*\{([^}]*)\}\s*from\s*[\"']([^\"']+)[\"'];?", re.MULTILINE
+)
 
 
-def write_root_files(html: str) -> None:
-    """Emit the repo-root entry points used by legacy GitHub Pages."""
-    root_html = html.replace('href="./static/css/styles.css"', 'href="./static/css/styles.css"')
-    with open(os.path.join(ROOT, "index.html"), "w", encoding="utf-8") as fh:
-        fh.write(root_html)
-    with open(os.path.join(ROOT, "404.html"), "w", encoding="utf-8") as fh:
-        fh.write(REDIRECT)
-    open(os.path.join(ROOT, ".nojekyll"), "w").close()
+def module_id(path: str) -> str:
+    return os.path.basename(path).replace(".js", "")
 
 
-def build() -> None:
-    check_sources()
+def transform(path: str, exports_by_mod: dict[str, list[str]]) -> str:
+    """Turn one ES module into an IIFE body that returns its exports."""
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+
+    # ---- resolve named imports into destructuring from the module registry
+    bindings: list[str] = []
+    for names, spec in NAMED_IMPORT_RE.findall(src):
+        target = module_id(spec.lstrip("./"))
+        parts = []
+        for raw in names.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            if " as " in raw:
+                orig, alias = [p.strip() for p in raw.split(" as ")]
+                parts.append(f"{orig}: {alias}")
+            else:
+                parts.append(raw)
+        if parts:
+            bindings.append(f"const {{ {', '.join(parts)} }} = __M[{target!r}];")
+
+    src = IMPORT_RE.sub("", src)
+
+    # ---- collect exported names, then strip the `export` keyword
+    names = [m.group(2) for m in EXPORT_DECL_RE.finditer(src)]
+    src = EXPORT_DECL_RE.sub(lambda m: f"{m.group(1)} {m.group(2)}", src)
+
+    # any `export { a, b }` / `export default` forms (not used today, but be safe)
+    src = re.sub(r"^export\s*\{[^}]*\};?[ \t]*$", "", src, flags=re.MULTILINE)
+    if re.search(r"^export\s", src, re.MULTILINE):
+        raise SystemExit(f"Unhandled export form left in {path}")
+
+    exports_by_mod[module_id(path)] = names
+    assign = f"return {{ {', '.join(names)} }};" if names else "return {};"
+
+    header = "\n  ".join(bindings)
+    return (
+        f"__M[{module_id(path)!r}] = (function () {{\n"
+        f"  {header}\n"
+        f"{src}\n"
+        f"  {assign}\n"
+        f"}})();\n"
+    )
+
+
+def bundle_js() -> str:
+    exports: dict[str, list[str]] = {}
+    chunks = []
+    for name in MODULES:
+        chunks.append(transform(os.path.join(STATIC, "js", name), exports))
+    body = "\n".join(chunks)
+    return (
+        "/* Container Resource Allocation Simulator — single-file bundle.\n"
+        "   Generated by build_static.py from static/js/*.js — do not edit by hand. */\n"
+        "(function () {\n"
+        "  'use strict';\n"
+        "  var __M = {};\n"
+        f"{body}"
+        "})();\n"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# page assembly
+# --------------------------------------------------------------------------- #
+
+BOOT_GUARD = """
+<div id="boot-error" style="display:none;position:fixed;inset:0;z-index:9999;
+     background:#080b14;color:#e8eefc;font-family:-apple-system,BlinkMacSystemFont,
+     'Segoe UI',Roboto,sans-serif;padding:28px;overflow:auto">
+  <div style="max-width:760px;margin:6vh auto">
+    <h1 style="font-size:20px;margin:0 0 10px">The simulator could not start</h1>
+    <p style="color:#9aa8c7;margin:0 0 16px;line-height:1.6">
+      The app failed while booting. The technical detail is below — open the browser
+      console for the full stack trace.
+    </p>
+    <pre id="boot-error-detail" style="background:#0e1424;border:1px solid #1e2942;
+         border-radius:10px;padding:14px;font-size:12px;color:#ffb545;
+         white-space:pre-wrap;word-break:break-word"></pre>
+    <p style="color:#6b7a9b;font-size:12px;margin-top:16px">
+      Try a hard refresh (Ctrl/Cmd + Shift + R). If you opened this file directly from
+      disk, the single-file build supports that too.
+    </p>
+  </div>
+</div>
+<script>
+  (function () {
+    function show(msg) {
+      var box = document.getElementById('boot-error');
+      var detail = document.getElementById('boot-error-detail');
+      if (!box) return;
+      detail.textContent = String(msg || 'Unknown error');
+      box.style.display = 'block';
+    }
+    window.addEventListener('error', function (e) {
+      show((e.message || 'Script error') + (e.filename ? '\\n' + e.filename + ':' + e.lineno : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason;
+      show(r && (r.stack || r.message) ? (r.stack || r.message) : r);
+    });
+    // If the app has not booted shortly after load, say so instead of showing white.
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (!window.__CRS_BOOTED__) {
+          show('The application script did not start.\\n\\n' +
+               'This usually means the JavaScript bundle was blocked or is stale.');
+        }
+      }, 3500);
+    });
+  })();
+</script>
+"""
+
+
+def read(path: str) -> str:
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def inline_page() -> str:
+    html = read(os.path.join(STATIC, "index.html"))
+    css = read(os.path.join(STATIC, "css", "styles.css"))
+    js = bundle_js()
+
+    # boot guard first so it can catch errors from the app itself
+    html = html.replace("<body>", "<body>" + BOOT_GUARD, 1)
+
+    # inline the stylesheet
+    html = html.replace(
+        '<link rel="stylesheet" href="./css/styles.css" />',
+        f"<style>\n{css}\n</style>",
+    )
+
+    # inline the bundle, marking boot success so the guard stays hidden
+    html = html.replace(
+        '<script type="module" src="./js/app.js"></script>',
+        "<script>\n" + js + "\nwindow.__CRS_BOOTED__ = true;\n</script>",
+    )
+
+    if "<style>" not in html or "__CRS_BOOTED__ = true" not in html:
+        raise SystemExit("ERROR: inlining failed - check the markers in static/index.html")
+
+    # inline build has no external assets of its own; keep the font links (they
+    # degrade gracefully to system fonts when offline)
+    return html
+
+
+def build_multi_file() -> None:
+    """Separate-file copy, for hosts (and the Actions workflow) that prefer it."""
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
     os.makedirs(OUT)
-
-    # static/ contents become the site root *and* stay reachable under ./static/
     for name in ("css", "js", "assets"):
         src = os.path.join(STATIC, name)
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(OUT, name))
 
-    with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as fh:
-        html = fh.read()
-
-    # rewrites for the sub-path hosting style used by GitHub Pages
+    html = read(os.path.join(STATIC, "index.html"))
+    html = html.replace("<body>", "<body>" + BOOT_GUARD, 1)
     html = html.replace('href="./css/styles.css"', 'href="./static/css/styles.css"')
     html = html.replace('src="./js/app.js"', 'src="./static/js/app.js"')
-    html = html.replace(
-        '<title>Container Resource Allocation Simulator · OS Lab</title>',
-        '<title>Container Resource Allocation Simulator · OS Lab</title>\n'
-        '<meta name="robots" content="index,follow" />',
-    )
-
-    # note in the page source that this copy needs no backend
-    html = html.replace(
-        '<script type="module" src="./static/js/app.js"></script>',
-        "<!-- Static build: no backend required. js/engine.js runs the identical\n"
-        "     simulation model in the browser. Serve from any static host. -->\n"
-        '<script type="module" src="./static/js/app.js"></script>',
-    )
 
     with open(os.path.join(OUT, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
-
-    # duplicate the app under /static/ so relative paths resolve no matter
-    # which of the two URL shapes a visitor lands on
     os.makedirs(os.path.join(OUT, "static"), exist_ok=True)
-    shutil.copyfile(os.path.join(OUT, "index.html"), os.path.join(OUT, "static", "index.html"))
-
+    with open(os.path.join(OUT, "static", "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(html)
     with open(os.path.join(OUT, "404.html"), "w", encoding="utf-8") as fh:
         fh.write(REDIRECT)
-
     open(os.path.join(OUT, ".nojekyll"), "w").close()
 
-    # Root-level entry points for GitHub Pages "legacy" mode (branch -> main -> /)
-    write_root_files(html)
 
-    total = 0
-    files = 0
-    for base, _dirs, names in os.walk(OUT):
-        for n in names:
-            files += 1
-            total += os.path.getsize(os.path.join(base, n))
-    print(f"Built {OUT} + root index.html / 404.html / .nojekyll")
-    print(f"  {files} files, {total / 1024:.1f} KiB")
-    for base, _dirs, names in sorted(os.walk(OUT)):
-        for n in sorted(names):
-            rel = os.path.relpath(os.path.join(base, n), OUT)
-            if rel.startswith("assets/"):
-                continue
-            print(f"  {rel}")
+def build() -> None:
+    missing = [f for f in REQUIRED if not os.path.exists(os.path.join(STATIC, f))]
+    if missing:
+        sys.exit(f"ERROR: missing source files: {', '.join(missing)}")
+
+    page = inline_page()
+    with open(os.path.join(ROOT, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(page)
+    with open(os.path.join(ROOT, "404.html"), "w", encoding="utf-8") as fh:
+        fh.write(REDIRECT)
+    open(os.path.join(ROOT, ".nojekyll"), "w").close()
+
+    build_multi_file()
+
+    size = os.path.getsize(os.path.join(ROOT, "index.html"))
+    print("Built:")
+    print(f"  index.html        {size / 1024:.1f} KiB  (single file, CSS + JS inlined)")
+    print("  404.html, .nojekyll")
+    print(f"  {OUT}/            multi-file copy for Actions / static hosts")
 
 
 if __name__ == "__main__":

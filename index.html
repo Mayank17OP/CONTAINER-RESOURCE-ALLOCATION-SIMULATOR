@@ -4,16 +4,1159 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Container Resource Allocation Simulator · OS Lab</title>
-<meta name="robots" content="index,follow" />
 <meta name="description" content="Interactive simulator for per-container CPU caps, weighted fair-share allocation and memory hard limits. Operating Systems Lab project." />
 <meta name="theme-color" content="#080b14" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="./static/css/styles.css" />
+<style>
+/* ==========================================================================
+   Container Resource Allocation Simulator
+   Design system: dark observability console
+   ========================================================================== */
+
+:root {
+  /* surfaces */
+  --bg: #080b14;
+  --bg-soft: #0b1020;
+  --panel: #0e1424;
+  --panel-2: #131b2e;
+  --panel-3: #182136;
+  --line: #1e2942;
+  --line-soft: #172034;
+  --line-bright: #2b3a5c;
+
+  /* text */
+  --text: #e8eefc;
+  --text-dim: #9aa8c7;
+  --text-faint: #6b7a9b;
+
+  /* accents */
+  --accent: #5b8cff;
+  --accent-2: #7c5cff;
+  --cyan: #2ee6d6;
+  --green: #35d39a;
+  --amber: #ffb545;
+  --orange: #ff8a4c;
+  --red: #ff5d73;
+  --pink: #ff5fa8;
+
+  --grad-brand: linear-gradient(135deg, #5b8cff 0%, #7c5cff 50%, #2ee6d6 100%);
+  --grad-green: linear-gradient(135deg, #35d39a, #2ee6d6);
+  --grad-amber: linear-gradient(135deg, #ffb545, #ff8a4c);
+  --grad-red: linear-gradient(135deg, #ff5d73, #ff5fa8);
+
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-xs: 7px;
+  --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 30px 70px -30px rgba(0, 0, 0, 0.9);
+
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --header-h: 68px;
+}
+
+* { box-sizing: border-box; }
+
+svg { flex-shrink: 0; }
+span[data-icon] { display: inline-flex; align-items: center; }
+span[data-icon] > svg { width: 1em; height: 1em; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* ambient background ------------------------------------------------------ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(91, 140, 255, 0.16), transparent 65%),
+    radial-gradient(760px 480px at 88% 4%, rgba(124, 92, 255, 0.14), transparent 62%),
+    radial-gradient(700px 500px at 50% 108%, rgba(46, 230, 214, 0.09), transparent 65%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(120, 150, 210, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 150, 210, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 0%, #000 0%, transparent 78%);
+  -webkit-mask-image: radial-gradient(circle at 50% 0%, #000 0%, transparent 78%);
+}
+
+/* typography ------------------------------------------------------------- */
+h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; }
+h1 { font-size: 26px; }
+h2 { font-size: 19px; }
+h3 { font-size: 15px; }
+p { margin: 0; }
+a { color: var(--accent); text-decoration: none; }
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.dim { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+.tiny { font-size: 11px; }
+.small { font-size: 12px; }
+
+/* utility --------------------------------------------------------------- */
+.row { display: flex; align-items: center; }
+.gap-6 { gap: 6px; } .gap-8 { gap: 8px; } .gap-10 { gap: 10px; }
+.gap-12 { gap: 12px; } .gap-16 { gap: 16px; }
+.spread { display: flex; align-items: center; justify-content: space-between; }
+.wrap { flex-wrap: wrap; }
+.grow { flex: 1; }
+.hidden { display: none !important; }
+.center { text-align: center; }
+.upper { text-transform: uppercase; letter-spacing: 0.12em; }
+
+/* ==========================================================================
+   Shell / header
+   ========================================================================== */
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+header.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 22px;
+  background: rgba(8, 11, 20, 0.82);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.brand-mark {
+  width: 38px; height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--grad-brand);
+  box-shadow: 0 8px 22px -8px rgba(91, 140, 255, 0.8);
+  flex: 0 0 auto;
+}
+.brand-mark svg { width: 20px; height: 20px; }
+
+.brand-text { min-width: 0; }
+.brand-title {
+  font-size: 14px; font-weight: 700; letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brand-sub {
+  font-size: 10.5px; color: var(--text-faint);
+  letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
+}
+
+.topbar-divider { width: 1px; height: 26px; background: var(--line); }
+.topbar-spacer { flex: 1; }
+
+/* nav tabs */
+.nav {
+  display: flex; gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+}
+.nav button {
+  border: 0; background: transparent; color: var(--text-dim);
+  font-family: var(--sans); font-size: 12.5px; font-weight: 550;
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  transition: color 0.16s, background 0.16s;
+  white-space: nowrap;
+}
+.nav button:hover { color: var(--text); }
+.nav button.active {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(91, 140, 255, 0.28), rgba(91, 140, 255, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.4);
+}
+
+/* status pill */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+  padding: 6px 11px; border-radius: 999px;
+  border: 1px solid rgba(53, 211, 154, 0.35);
+  background: rgba(53, 211, 154, 0.08);
+  color: #7cf0c4;
+  white-space: nowrap;
+}
+.status-pill[data-mode="client"] {
+  border-color: rgba(91, 140, 255, 0.4);
+  background: rgba(91, 140, 255, 0.09);
+  color: #b9cdff;
+}
+.status-pill[data-mode="client"] .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.2);
+}
+
+.status-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 0 3px rgba(53, 211, 154, 0.18);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 20px 22px 64px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 372px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.side-col { display: flex; flex-direction: column; gap: 16px; position: sticky; top: calc(var(--header-h) + 16px); }
+.main-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* ==========================================================================
+   Panels
+   ========================================================================== */
+.panel {
+  background: linear-gradient(180deg, rgba(19, 27, 46, 0.92), rgba(14, 20, 36, 0.94));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.014);
+}
+.panel-title {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 12px; font-weight: 650;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.panel-title svg { width: 14px; height: 14px; color: var(--accent); }
+.panel-body { padding: 16px; }
+
+.step-badge {
+  display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 6px;
+  background: rgba(91, 140, 255, 0.16);
+  border: 1px solid rgba(91, 140, 255, 0.32);
+  color: #a9c2ff; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  flex: 0 0 auto;
+}
+
+/* ==========================================================================
+   Form controls
+   ========================================================================== */
+.field { margin-bottom: 12px; }
+.field:last-child { margin-bottom: 0; }
+.field-label {
+  display: block; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 5px;
+}
+.field-hint { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+
+input[type="number"], input[type="text"], select {
+  width: 100%;
+  padding: 8px 11px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+input[type="text"] { font-family: var(--sans); font-size: 12.5px; }
+input:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.16);
+  background: #0c1222;
+}
+input.invalid { border-color: var(--red); box-shadow: 0 0 0 3px rgba(255, 93, 115, 0.14); }
+input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+select {
+  font-family: var(--sans);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239aa8c7' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  padding-right: 30px;
+}
+select option { background: #101827; color: var(--text); }
+
+/* buttons */
+button { font-family: var(--sans); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px 15px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--line-bright);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--panel-3); border-color: #3a4c74; }
+.btn:active { transform: translateY(1px); }
+.btn svg { width: 14px; height: 14px; }
+
+.btn-primary {
+  background: linear-gradient(135deg, #5b8cff, #7c5cff);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 10px 26px -12px rgba(91, 140, 255, 0.9);
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, #6d99ff, #8c70ff);
+  box-shadow: 0 14px 30px -12px rgba(112, 150, 255, 0.95);
+}
+.btn-ghost { background: transparent; border-color: var(--line); color: var(--text-dim); }
+.btn-ghost:hover { color: var(--text); background: var(--panel-2); }
+.btn-danger { border-color: rgba(255, 93, 115, 0.35); color: #ff8b9c; background: rgba(255, 93, 115, 0.07); }
+.btn-danger:hover { background: rgba(255, 93, 115, 0.14); border-color: rgba(255, 93, 115, 0.55); }
+.btn-sm { padding: 6px 10px; font-size: 11.5px; }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.icon-btn {
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  flex: 0 0 auto;
+}
+.icon-btn:hover { color: var(--red); background: rgba(255, 93, 115, 0.1); border-color: rgba(255, 93, 115, 0.3); }
+.icon-btn svg { width: 13px; height: 13px; }
+
+/* segmented control */
+.segmented {
+  display: flex; gap: 3px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 3px;
+}
+.segmented button {
+  flex: 1;
+  border: 0; background: transparent;
+  color: var(--text-faint);
+  font-size: 11.5px; font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.active {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(91, 140, 255, 0.3), rgba(91, 140, 255, 0.16));
+  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.42);
+}
+
+/* switch */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: var(--text-dim); }
+.switch input { display: none; }
+.switch .track {
+  width: 32px; height: 18px; border-radius: 999px;
+  background: var(--line); position: relative;
+  transition: background 0.18s;
+}
+.switch .track::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #7c8aa8;
+  transition: transform 0.18s, background 0.18s;
+}
+.switch input:checked + .track { background: rgba(53, 211, 154, 0.3); }
+.switch input:checked + .track::after { transform: translateX(14px); background: var(--green); }
+
+/* ==========================================================================
+   Cards / metrics
+   ========================================================================== */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
+}
+
+.metric {
+  position: relative;
+  padding: 14px 15px 13px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(19, 27, 46, 0.95), rgba(13, 19, 34, 0.95));
+  border: 1px solid var(--line);
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.metric::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2.5px;
+  background: var(--accent); opacity: 0.85;
+}
+.metric.accent-cyan::before { background: var(--cyan); }
+.metric.accent-green::before { background: var(--green); }
+.metric.accent-amber::before { background: var(--amber); }
+.metric.accent-red::before { background: var(--red); }
+.metric.accent-violet::before { background: var(--accent-2); }
+.metric:hover { border-color: var(--line-bright); }
+
+.metric-label svg { width: 13px; height: 13px; flex: 0 0 auto; }
+
+.metric-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.metric-value {
+  font-family: var(--mono); font-size: 25px; font-weight: 700;
+  letter-spacing: -0.03em; line-height: 1.1;
+  display: flex; align-items: baseline; gap: 4px;
+}
+.metric-value .unit { font-size: 12px; font-weight: 500; color: var(--text-faint); letter-spacing: 0; }
+.metric-sub { font-size: 11.5px; color: var(--text-faint); margin-top: 5px; font-family: var(--mono); }
+
+/* progress / meter */
+.meter {
+  height: 6px; border-radius: 999px;
+  background: rgba(120, 150, 210, 0.13);
+  overflow: hidden;
+  position: relative;
+}
+.meter > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--grad-brand);
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.meter.ok > span { background: var(--grad-green); }
+.meter.warn > span { background: var(--grad-amber); }
+.meter.crit > span { background: var(--grad-red); }
+.meter.thin { height: 4px; }
+
+/* badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  font-family: var(--mono);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+}
+.badge.normal, .badge.ok { color: #6ee7b7; background: rgba(53, 211, 154, 0.1); border-color: rgba(53, 211, 154, 0.28); }
+.badge.near { color: #ffd08a; background: rgba(255, 181, 69, 0.1); border-color: rgba(255, 181, 69, 0.28); }
+.badge.throttled { color: #a9c2ff; background: rgba(91, 140, 255, 0.12); border-color: rgba(91, 140, 255, 0.3); }
+.badge.pressure { color: #ffbe8a; background: rgba(255, 138, 76, 0.12); border-color: rgba(255, 138, 76, 0.32); }
+.badge.oom { color: #ff9bab; background: rgba(255, 93, 115, 0.14); border-color: rgba(255, 93, 115, 0.36); }
+.badge.critical { color: #ff9bab; background: rgba(255, 93, 115, 0.14); border-color: rgba(255, 93, 115, 0.36); }
+.badge.warn { color: #ffd08a; background: rgba(255, 181, 69, 0.1); border-color: rgba(255, 181, 69, 0.28); }
+.badge.info { color: #a9c2ff; background: rgba(91, 140, 255, 0.12); border-color: rgba(91, 140, 255, 0.3); }
+.badge.neutral { color: var(--text-dim); background: rgba(154, 168, 199, 0.09); border-color: rgba(154, 168, 199, 0.22); }
+
+.tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: var(--mono);
+  background: rgba(124, 92, 255, 0.14);
+  color: #bda9ff;
+  border: 1px solid rgba(124, 92, 255, 0.28);
+}
+
+/* ==========================================================================
+   Container cards
+   ========================================================================== */
+.ctr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 12px;
+}
+
+.ctr-card {
+  position: relative;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(19, 27, 46, 0.9), rgba(12, 18, 32, 0.92));
+  padding: 13px 14px 14px;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.ctr-card:hover { transform: translateY(-1px); border-color: var(--line-bright); }
+.ctr-card::after {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1.5px;
+  background: var(--grad-brand); opacity: 0.55;
+}
+.ctr-card.s-pressure::after { background: var(--grad-amber); opacity: 0.9; }
+.ctr-card.s-oom::after { background: var(--grad-red); opacity: 1; }
+.ctr-card.s-oom {
+  border-color: rgba(255, 93, 115, 0.42);
+  box-shadow: 0 0 0 1px rgba(255, 93, 115, 0.12), 0 18px 40px -24px rgba(255, 93, 115, 0.5);
+  animation: oomPulse 2.2s ease-in-out infinite;
+}
+@keyframes oomPulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 93, 115, 0.12), 0 18px 40px -24px rgba(255, 93, 115, 0.5); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 93, 115, 0.3), 0 18px 44px -20px rgba(255, 93, 115, 0.75); }
+}
+
+.ctr-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+.ctr-avatar {
+  width: 26px; height: 26px; border-radius: 8px;
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: #fff;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.ctr-name {
+  font-size: 13px; font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ctr-meta { font-family: var(--mono); font-size: 10px; color: var(--text-faint); letter-spacing: 0.03em; }
+
+.ctr-stats { display: flex; flex-direction: column; gap: 9px; }
+.ctr-stat-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ctr-stat-label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ctr-stat-value { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+.ctr-stat-value .unit { font-size: 9.5px; color: var(--text-faint); font-weight: 500; }
+
+.ctr-foot {
+  margin-top: 11px; padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Charts
+   ========================================================================== */
+.chart-wrap { position: relative; width: 100%; }
+.chart-wrap svg { display: block; width: 100%; overflow: visible; }
+
+.chart-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 14px;
+  margin-top: 11px;
+  font-size: 11px; color: var(--text-dim);
+}
+.legend-item { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); }
+.legend-swatch { width: 9px; height: 9px; border-radius: 2.5px; flex: 0 0 auto; }
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 30;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(9, 13, 24, 0.97);
+  border: 1px solid var(--line-bright);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text);
+  min-width: 132px;
+  opacity: 0;
+  transform: translate(-50%, -100%);
+  transition: opacity 0.12s;
+  white-space: nowrap;
+}
+.chart-tooltip.show { opacity: 1; }
+.chart-tooltip .tt-title {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 5px;
+}
+.chart-tooltip .tt-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chart-tooltip .tt-key { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); }
+.chart-tooltip .tt-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+thead th {
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-faint);
+  background: rgba(255, 255, 255, 0.022);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  position: sticky; top: 0;
+  backdrop-filter: blur(8px);
+}
+thead th.num, tbody td.num { text-align: right; }
+tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background 0.14s; }
+tbody tr:hover { background: rgba(91, 140, 255, 0.045); }
+tbody td.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.table-name { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; }
+.mini-dot { width: 7px; height: 7px; border-radius: 2px; flex: 0 0 auto; }
+
+/* ==========================================================================
+   Event log
+   ========================================================================== */
+.log {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.log-row {
+  display: grid;
+  grid-template-columns: 42px 68px minmax(0, 1fr);
+  gap: 9px;
+  padding: 6px 16px;
+  border-left: 2px solid transparent;
+  align-items: baseline;
+}
+.log-row:hover { background: rgba(91, 140, 255, 0.05); }
+.log-row.critical { border-left-color: var(--red); background: rgba(255, 93, 115, 0.045); }
+.log-row.warn { border-left-color: var(--amber); }
+.log-row.info { border-left-color: rgba(91, 140, 255, 0.55); }
+.log-step { color: var(--text-faint); font-size: 10.5px; }
+.log-kind {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.log-kind.cpu { color: #a9c2ff; }
+.log-kind.memory { color: #ffc48a; }
+.log-kind.system { color: #bda9ff; }
+.log-msg { color: var(--text-dim); line-height: 1.5; word-break: break-word; }
+.log-row.critical .log-msg { color: #ffc2cb; }
+
+.empty-state {
+  padding: 26px 16px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Presets
+   ========================================================================== */
+.preset-list { display: flex; flex-direction: column; gap: 7px; }
+.preset-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.012);
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s, transform 0.16s;
+  text-align: left;
+  width: 100%;
+  font-family: var(--sans);
+}
+.preset-item:hover { border-color: var(--line-bright); background: rgba(91, 140, 255, 0.06); transform: translateX(2px); }
+.preset-item.active {
+  border-color: rgba(91, 140, 255, 0.5);
+  background: linear-gradient(135deg, rgba(91, 140, 255, 0.13), rgba(124, 92, 255, 0.07));
+}
+.preset-icon {
+  width: 24px; height: 24px; border-radius: 7px;
+  display: grid; place-items: center;
+  background: rgba(91, 140, 255, 0.12);
+  border: 1px solid rgba(91, 140, 255, 0.22);
+  color: #a9c2ff;
+  flex: 0 0 auto;
+}
+.preset-icon svg { width: 12px; height: 12px; }
+.preset-body { min-width: 0; }
+.preset-name { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.35; }
+.preset-blurb { font-size: 10.5px; color: var(--text-faint); line-height: 1.45; margin-top: 2px; }
+
+/* ==========================================================================
+   Editor rows (container config)
+   ========================================================================== */
+.editor-list { display: flex; flex-direction: column; gap: 10px; }
+
+.editor-row {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(10, 15, 27, 0.6);
+  padding: 10px 11px 11px;
+  transition: border-color 0.16s;
+}
+.editor-row:focus-within { border-color: rgba(91, 140, 255, 0.45); }
+.editor-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.editor-row-head input[type="text"] { flex: 1; padding: 5px 9px; font-size: 12px; font-weight: 600; }
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.editor-field label {
+  display: block;
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+.editor-field input { padding: 5px 8px; font-size: 11.5px; }
+.editor-cap-line {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 7px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Slide-style explainer
+   ========================================================================== */
+.hero {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(700px 300px at 8% -20%, rgba(91, 140, 255, 0.18), transparent 70%),
+    radial-gradient(600px 320px at 92% 120%, rgba(124, 92, 255, 0.15), transparent 70%),
+    linear-gradient(180deg, rgba(19, 27, 46, 0.9), rgba(11, 16, 29, 0.95));
+  padding: 24px 26px;
+  overflow: hidden;
+  position: relative;
+}
+.hero h1 { font-size: 28px; line-height: 1.18; margin-bottom: 9px; letter-spacing: -0.025em; }
+.hero h1 .grad {
+  background: var(--grad-brand);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hero p { color: var(--text-dim); max-width: 76ch; font-size: 13.5px; }
+.hero-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 11.5px; color: var(--text-dim);
+  font-family: var(--mono);
+}
+.chip strong { color: var(--text); font-weight: 650; }
+.chip svg { width: 12px; height: 12px; color: var(--accent); }
+
+.formula {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: rgba(91, 140, 255, 0.07);
+  border: 1px solid rgba(91, 140, 255, 0.22);
+  border-radius: 9px;
+  padding: 10px 13px;
+  color: #cfe0ff;
+  overflow-x: auto;
+  white-space: nowrap;
+  line-height: 1.7;
+}
+.formula .hl { color: var(--cyan); font-weight: 600; }
+.formula .cm { color: var(--text-faint); }
+
+/* module cards (architecture) */
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 11px;
+}
+.module-card {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.014);
+  padding: 12px 13px;
+  transition: border-color 0.18s, background 0.18s;
+}
+.module-card:hover { border-color: var(--line-bright); background: rgba(91, 140, 255, 0.045); }
+.module-idx {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  color: var(--accent); letter-spacing: 0.1em; margin-bottom: 6px;
+}
+.module-card h3 { font-size: 13px; margin-bottom: 4px; }
+.module-card p { font-size: 11.5px; color: var(--text-faint); line-height: 1.5; }
+
+/* flow diagram */
+.flow {
+  display: flex; align-items: stretch; gap: 0;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+}
+.flow-node {
+  flex: 1 1 0;
+  min-width: 118px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 11px;
+  background: rgba(255, 255, 255, 0.018);
+  text-align: center;
+}
+.flow-node .fn-num {
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  color: var(--text-faint); letter-spacing: 0.1em; margin-bottom: 3px;
+}
+.flow-node .fn-title { font-size: 11.5px; font-weight: 650; }
+.flow-node .fn-sub { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+.flow-arrow {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  padding: 0 6px;
+  color: var(--line-bright);
+}
+.flow-arrow svg { width: 14px; height: 14px; }
+
+/* comparison bars */
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 11px; }
+.cmp-card {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.014);
+}
+.cmp-card h3 { font-size: 12.5px; margin-bottom: 2px; }
+.cmp-row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) 52px;
+  align-items: center; gap: 8px;
+  margin-top: 7px;
+  font-family: var(--mono); font-size: 10.5px;
+}
+.cmp-name { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-bar { height: 5px; border-radius: 999px; background: rgba(120, 150, 210, 0.13); overflow: hidden; }
+.cmp-bar > span { display: block; height: 100%; border-radius: 999px; }
+.cmp-val { text-align: right; color: var(--text); }
+
+/* ==========================================================================
+   Tabs: explainer view
+   ========================================================================== */
+.view { display: none; }
+.view.active { display: block; animation: fadeUp 0.28s ease-out; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.doc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.prose { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+.prose strong { color: var(--text); font-weight: 620; }
+.prose code {
+  font-family: var(--mono); font-size: 11.5px;
+  background: rgba(91, 140, 255, 0.1);
+  border: 1px solid rgba(91, 140, 255, 0.18);
+  padding: 1px 5px; border-radius: 4px; color: #cfe0ff;
+}
+.prose ul { margin: 8px 0 0; padding-left: 17px; }
+.prose li { margin-bottom: 6px; }
+.prose li::marker { color: var(--accent); }
+
+.kv-list { display: flex; flex-direction: column; gap: 0; }
+.kv {
+  display: grid; grid-template-columns: 118px minmax(0, 1fr);
+  gap: 12px; padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+.kv:last-child { border-bottom: 0; }
+.kv dt { color: var(--text-faint); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; }
+.kv dd { margin: 0; color: var(--text-dim); font-family: var(--mono); font-size: 11.5px; }
+
+/* ==========================================================================
+   Toast
+   ========================================================================== */
+#toasts {
+  position: fixed; bottom: 20px; right: 20px;
+  z-index: 200;
+  display: flex; flex-direction: column; gap: 9px;
+  max-width: 380px;
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: rgba(13, 19, 34, 0.98);
+  border: 1px solid var(--line-bright);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+  animation: toastIn 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  backdrop-filter: blur(12px);
+}
+.toast.error { border-color: rgba(255, 93, 115, 0.5); }
+.toast.success { border-color: rgba(53, 211, 154, 0.45); }
+.toast .t-icon { flex: 0 0 auto; margin-top: 1px; }
+.toast .t-icon svg { width: 15px; height: 15px; }
+.toast.error .t-icon { color: var(--red); }
+.toast.success .t-icon { color: var(--green); }
+.toast .t-body { min-width: 0; }
+.toast .t-title { font-weight: 650; margin-bottom: 1px; }
+.toast .t-msg { color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px) scale(0.97); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* ==========================================================================
+   Timeline scrubber
+   ========================================================================== */
+.scrubber {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.014);
+}
+.scrubber input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; height: 24px; background: transparent; cursor: pointer;
+  padding: 0; border: 0;
+}
+.scrubber input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 999px;
+  background: linear-gradient(90deg, rgba(91, 140, 255, 0.75) var(--pct, 0%), rgba(120, 150, 210, 0.14) var(--pct, 0%));
+}
+.scrubber input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--accent);
+  margin-top: -4.5px;
+  box-shadow: 0 0 0 4px rgba(91, 140, 255, 0.2);
+  transition: transform 0.14s;
+}
+.scrubber input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.14); }
+.scrubber input[type="range"]::-moz-range-track {
+  height: 5px; border-radius: 999px; background: rgba(120, 150, 210, 0.14);
+}
+.scrubber input[type="range"]::-moz-range-progress {
+  height: 5px; border-radius: 999px; background: rgba(91, 140, 255, 0.75);
+}
+.scrubber input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%; background: #fff;
+  border: 2px solid var(--accent); box-shadow: 0 0 0 4px rgba(91, 140, 255, 0.2);
+}
+.scrub-label {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dim); min-width: 74px;
+}
+.play-btn {
+  display: grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 8px;
+  border: 1px solid rgba(91, 140, 255, 0.4);
+  background: rgba(91, 140, 255, 0.14);
+  color: #a9c2ff; cursor: pointer; flex: 0 0 auto;
+  transition: background 0.15s, color 0.15s;
+}
+.play-btn:hover { background: rgba(91, 140, 255, 0.26); color: #fff; }
+.play-btn svg { width: 12px; height: 12px; }
+
+/* ==========================================================================
+   Misc
+   ========================================================================== */
+.divider { height: 1px; background: var(--line-soft); margin: 12px 0; }
+
+.notice {
+  display: flex; gap: 9px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  border: 1px solid rgba(91, 140, 255, 0.24);
+  background: rgba(91, 140, 255, 0.07);
+  color: #c2d4ff;
+}
+.notice svg { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 1px; color: var(--accent); }
+.notice span[data-icon] > svg { width: 14px; height: 14px; }
+.notice.warn {
+  border-color: rgba(255, 181, 69, 0.26);
+  background: rgba(255, 181, 69, 0.07);
+  color: #ffe0b0;
+}
+.notice.warn svg { color: var(--amber); }
+
+.verdict {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.verdict.ok { border-color: rgba(53, 211, 154, 0.32); background: rgba(53, 211, 154, 0.06); }
+.verdict.info { border-color: rgba(91, 140, 255, 0.32); background: rgba(91, 140, 255, 0.06); }
+.verdict.warn { border-color: rgba(255, 181, 69, 0.32); background: rgba(255, 181, 69, 0.06); }
+.verdict.critical { border-color: rgba(255, 93, 115, 0.35); background: rgba(255, 93, 115, 0.07); }
+.verdict-icon {
+  width: 32px; height: 32px; border-radius: 9px;
+  display: grid; place-items: center; flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.05);
+}
+.verdict-icon svg { width: 16px; height: 16px; }
+.verdict.ok .verdict-icon { color: var(--green); background: rgba(53, 211, 154, 0.12); }
+.verdict.info .verdict-icon { color: var(--accent); background: rgba(91, 140, 255, 0.12); }
+.verdict.warn .verdict-icon { color: var(--amber); background: rgba(255, 181, 69, 0.12); }
+.verdict.critical .verdict-icon { color: var(--red); background: rgba(255, 93, 115, 0.12); }
+.verdict-title { font-size: 13.5px; font-weight: 650; margin-bottom: 2px; }
+.verdict-detail { font-size: 12px; color: var(--text-dim); line-height: 1.55; }
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* scrollbars */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #223049; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #2f4160; background-clip: content-box; }
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+@media (max-width: 1180px) {
+  .workspace { grid-template-columns: 1fr; }
+  .side-col { position: static; }
+  .hero h1 { font-size: 24px; }
+}
+
+@media (max-width: 860px) {
+  header.topbar { padding: 0 14px; gap: 12px; flex-wrap: nowrap; overflow-x: auto; }
+  .brand-sub, .topbar-divider, .status-pill .label { display: none; }
+  main { padding: 14px 14px 48px; }
+  .nav button { padding: 6px 10px; font-size: 11.5px; }
+  .hero { padding: 18px; }
+  .hero h1 { font-size: 21px; }
+  h1 { font-size: 21px; }
+  .metric-value { font-size: 21px; }
+  .ctr-grid { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 100px minmax(0, 1fr); }
+  #toasts { left: 14px; right: 14px; max-width: none; }
+  .flow { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); padding: 4px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+</style>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%235b8cff'/%3E%3Cpath d='M12 5l6 3.5v7L12 19l-6-3.5v-7L12 5z' fill='none' stroke='white' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E" />
 </head>
 <body>
+<div id="boot-error" style="display:none;position:fixed;inset:0;z-index:9999;
+     background:#080b14;color:#e8eefc;font-family:-apple-system,BlinkMacSystemFont,
+     'Segoe UI',Roboto,sans-serif;padding:28px;overflow:auto">
+  <div style="max-width:760px;margin:6vh auto">
+    <h1 style="font-size:20px;margin:0 0 10px">The simulator could not start</h1>
+    <p style="color:#9aa8c7;margin:0 0 16px;line-height:1.6">
+      The app failed while booting. The technical detail is below — open the browser
+      console for the full stack trace.
+    </p>
+    <pre id="boot-error-detail" style="background:#0e1424;border:1px solid #1e2942;
+         border-radius:10px;padding:14px;font-size:12px;color:#ffb545;
+         white-space:pre-wrap;word-break:break-word"></pre>
+    <p style="color:#6b7a9b;font-size:12px;margin-top:16px">
+      Try a hard refresh (Ctrl/Cmd + Shift + R). If you opened this file directly from
+      disk, the single-file build supports that too.
+    </p>
+  </div>
+</div>
+<script>
+  (function () {
+    function show(msg) {
+      var box = document.getElementById('boot-error');
+      var detail = document.getElementById('boot-error-detail');
+      if (!box) return;
+      detail.textContent = String(msg || 'Unknown error');
+      box.style.display = 'block';
+    }
+    window.addEventListener('error', function (e) {
+      show((e.message || 'Script error') + (e.filename ? '\n' + e.filename + ':' + e.lineno : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason;
+      show(r && (r.stack || r.message) ? (r.stack || r.message) : r);
+    });
+    // If the app has not booted shortly after load, say so instead of showing white.
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (!window.__CRS_BOOTED__) {
+          show('The application script did not start.\n\n' +
+               'This usually means the JavaScript bundle was blocked or is stale.');
+        }
+      }, 3500);
+    });
+  })();
+</script>
+
 <div class="shell">
 
   <!-- ================= HEADER ================= -->
@@ -608,8 +1751,2231 @@
 
 <div id="toasts"></div>
 
-<!-- Static build: no backend required. js/engine.js runs the identical
-     simulation model in the browser. Serve from any static host. -->
-<script type="module" src="./static/js/app.js"></script>
+<script>
+/* Container Resource Allocation Simulator — single-file bundle.
+   Generated by build_static.py from static/js/*.js — do not edit by hand. */
+(function () {
+  'use strict';
+  var __M = {};
+__M['charts'] = (function () {
+  
+/* ==========================================================================
+   charts.js - tiny dependency-free SVG chart engine
+   LineChart  : multi-series line / area chart with capacity rule + tooltip
+   StackBar   : single horizontal stacked composition bar
+   Gauge      : radial utilisation gauge
+   ========================================================================== */
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const PALETTE = [
+  "#5b8cff",
+  "#2ee6d6",
+  "#b388ff",
+  "#ffb545",
+  "#ff5fa8",
+  "#35d39a",
+  "#ff8a4c",
+  "#6ee7f9",
+  "#f472b6",
+  "#a3e635",
+  "#facc15",
+  "#93c5fd",
+];
+
+function colorFor(index) {
+  return PALETTE[index % PALETTE.length];
+}
+
+function hexToRgba(hex, alpha) {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v !== null && v !== undefined) node.setAttribute(k, v);
+  }
+  for (const child of children) {
+    if (child) node.appendChild(child);
+  }
+  return node;
+}
+
+function text(content, attrs = {}) {
+  const node = el("text", {
+    "font-family": "'JetBrains Mono', ui-monospace, monospace",
+    "font-size": 10,
+    fill: "#6b7a9b",
+    ...attrs,
+  });
+  node.textContent = content;
+  return node;
+}
+
+/** Choose a "nice" axis maximum. */
+function niceMax(value) {
+  if (!isFinite(value) || value <= 0) return 1;
+  const exp = Math.floor(Math.log10(value));
+  const base = Math.pow(10, exp);
+  const frac = value / base;
+  const step = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 2.5 ? 2.5 : frac <= 5 ? 5 : 10;
+  return step * base;
+}
+
+function fmtTick(value) {
+  if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (Math.abs(value) >= 10) return value.toFixed(0);
+  if (Math.abs(value) >= 1) return value.toFixed(1).replace(/\.0$/, "");
+  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/* ==========================================================================
+   LineChart
+   series: [{ name, data: number[], color, dashed, area, width }]
+   options: { capacity: {value, label, color}, height, yUnit, xLabels, formatValue }
+   ========================================================================== */
+class LineChart {
+  constructor(mount, options = {}) {
+    this.mount = mount;
+    this.options = options;
+    this.width = 0;
+    this.hoverIndex = -1;
+    this.series = [];
+    this.xLabels = [];
+
+    mount.classList.add("chart-wrap");
+    this.svg = el("svg", { role: "img" });
+    this.tip = document.createElement("div");
+    this.tip.className = "chart-tooltip";
+    mount.appendChild(this.svg);
+    mount.appendChild(this.tip);
+
+    this.ro = new ResizeObserver(() => this.measure());
+    this.ro.observe(mount);
+
+    this.svg.addEventListener("mousemove", (e) => this.onMove(e));
+    this.svg.addEventListener("mouseleave", () => this.clearHover());
+    window.addEventListener("resize", () => this.measure());
+  }
+
+  measure() {
+    const w = this.mount.clientWidth;
+    if (!w) return;
+    if (Math.abs(w - this.width) < 1.5) return;
+    this.width = w;
+    this.render();
+  }
+
+  setData(series, xLabels) {
+    this.series = series.filter((s) => s && Array.isArray(s.data) && s.data.length);
+    this.xLabels = xLabels || [];
+    if (!this.width) this.width = this.mount.clientWidth || 640;
+    this.hoverIndex = -1;
+    this.clearHover();
+    this.render();
+  }
+
+  render() {
+    const height = this.options.height || 200;
+    const pad = { top: 14, right: 16, bottom: 24, left: 42 };
+    const w = Math.max(240, this.width);
+    const innerW = w - pad.left - pad.right;
+    const innerH = height - pad.top - pad.bottom;
+
+    this.svg.setAttribute("viewBox", `0 0 ${w} ${height}`);
+    this.svg.setAttribute("height", height);
+    this.svg.setAttribute("width", w);
+    this.svg.replaceChildren();
+
+    const series = this.series;
+    const n = Math.max(...series.map((s) => s.data.length), 1);
+    const flat = series.flatMap((s) => s.data).filter((v) => Number.isFinite(v));
+    const cap = this.options.capacity;
+    let peak = Math.max(...flat, 0);
+    if (cap && cap.value) peak = Math.max(peak, cap.value);
+    const maxY = niceMax(peak * 1.12) || 1;
+
+    const x = (i) => pad.left + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+    const y = (v) => pad.top + innerH - (Math.max(0, Math.min(v, maxY)) / maxY) * innerH;
+
+    /* ---- grid + y ticks ---- */
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const v = (maxY / ticks) * i;
+      const gy = y(v);
+      this.svg.appendChild(
+        el("line", {
+          x1: pad.left, x2: pad.left + innerW, y1: gy, y2: gy,
+          stroke: "#1a2338", "stroke-width": 1,
+          "stroke-dasharray": i === 0 ? "none" : "3 4",
+        })
+      );
+      this.svg.appendChild(
+        text(fmtTick(v), { x: pad.left - 9, y: gy + 3.5, "text-anchor": "end", "font-size": 9.5 })
+      );
+    }
+
+    /* ---- x labels ---- */
+    const labelCount = Math.min(n, this.width < 480 ? 4 : 8);
+    const stride = Math.max(1, Math.round((n - 1) / Math.max(1, labelCount - 1)));
+    for (let i = 0; i < n; i += stride) {
+      this.svg.appendChild(
+        text(this.xLabels[i] ?? `t${i}`, { x: x(i), y: height - 7, "text-anchor": "middle", "font-size": 9.5 })
+      );
+    }
+
+    /* ---- capacity rule ---- */
+    if (cap && cap.value > 0) {
+      const cy = y(cap.value);
+      this.svg.appendChild(
+        el("line", {
+          x1: pad.left, x2: pad.left + innerW, y1: cy, y2: cy,
+          stroke: cap.color || "#ff8a4c", "stroke-width": 1.4,
+          "stroke-dasharray": "6 4", opacity: 0.9,
+        })
+      );
+      const label = cap.label || "capacity";
+      const tw = label.length * 5.6 + 12;
+      this.svg.appendChild(
+        el("rect", {
+          x: pad.left + innerW - tw, y: cy - 15, width: tw, height: 13, rx: 3,
+          fill: "rgba(255,138,76,0.14)", stroke: "rgba(255,138,76,0.35)", "stroke-width": 0.8,
+        })
+      );
+      this.svg.appendChild(
+        text(label, {
+          x: pad.left + innerW - tw / 2, y: cy - 5.5,
+          "text-anchor": "middle", "font-size": 8.5, fill: "#ffb98a",
+        })
+      );
+    }
+
+    /* ---- series ---- */
+    series.forEach((s) => {
+      const pts = s.data.map((v, i) => [x(i), y(v)]);
+      if (!pts.length) return;
+      const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
+
+      if (s.area) {
+        const areaD = `${d} L${pts[pts.length - 1][0].toFixed(2)},${y(0)} L${pts[0][0].toFixed(2)},${y(0)} Z`;
+        const gradId = `grad-${Math.random().toString(36).slice(2, 9)}`;
+        const grad = el("linearGradient", { id: gradId, x1: 0, y1: 0, x2: 0, y2: 1 }, [
+          el("stop", { offset: "0%", "stop-color": s.color, "stop-opacity": 0.28 }),
+          el("stop", { offset: "100%", "stop-color": s.color, "stop-opacity": 0.01 }),
+        ]);
+        this.svg.appendChild(el("defs", {}, [grad]));
+        this.svg.appendChild(el("path", { d: areaD, fill: `url(#${gradId})` }));
+      }
+
+      this.svg.appendChild(
+        el("path", {
+          d, fill: "none", stroke: s.color,
+          "stroke-width": s.width || 2,
+          "stroke-linecap": "round", "stroke-linejoin": "round",
+          "stroke-dasharray": s.dashed ? "5 4" : null,
+          opacity: s.dashed ? 0.75 : 1,
+        })
+      );
+
+      // last point marker
+      const last = pts[pts.length - 1];
+      this.svg.appendChild(el("circle", { cx: last[0], cy: last[1], r: 3.2, fill: s.color }));
+      this.svg.appendChild(
+        el("circle", { cx: last[0], cy: last[1], r: 6, fill: s.color, opacity: 0.18 })
+      );
+    });
+
+    /* ---- hover layer ---- */
+    this.hoverLine = el("line", {
+      y1: pad.top, y2: pad.top + innerH, stroke: "#4a5f8a",
+      "stroke-width": 1, "stroke-dasharray": "3 3", opacity: 0,
+    });
+    this.svg.appendChild(this.hoverLine);
+    this.hoverDots = series.map((s) =>
+      el("circle", { r: 4, fill: "#0b1020", stroke: s.color, "stroke-width": 2, opacity: 0 })
+    );
+    this.hoverDots.forEach((d) => this.svg.appendChild(d));
+
+    this.hit = el("rect", {
+      x: pad.left, y: pad.top, width: innerW, height: innerH,
+      fill: "transparent", style: "cursor:crosshair",
+    });
+    this.svg.appendChild(this.hit);
+
+    this.geom = { pad, innerW, innerH, n, x, y, w, height };
+    if (this.hoverIndex >= 0) this.paintHover(this.hoverIndex);
+  }
+
+  onMove(event) {
+    if (!this.geom) return;
+    const rect = this.svg.getBoundingClientRect();
+    const scale = this.geom.w / rect.width;
+    const px = (event.clientX - rect.left) * scale;
+    const { pad, innerW, n } = this.geom;
+    const ratio = (px - pad.left) / innerW;
+    if (ratio < -0.05 || ratio > 1.05) return this.clearHover();
+    const idx = Math.max(0, Math.min(n - 1, Math.round(ratio * (n - 1))));
+    if (idx !== this.hoverIndex) {
+      this.hoverIndex = idx;
+      this.paintHover(idx);
+    }
+    this.positionTip(event);
+  }
+
+  paintHover(idx) {
+    if (!this.geom) return;
+    const { x, y, pad, innerH } = this.geom;
+    const cx = x(idx);
+    this.hoverLine.setAttribute("x1", cx);
+    this.hoverLine.setAttribute("x2", cx);
+    this.hoverLine.setAttribute("opacity", 0.85);
+
+    this.series.forEach((s, i) => {
+      const dot = this.hoverDots[i];
+      if (!dot) return;
+      const v = s.data[idx];
+      if (!Number.isFinite(v)) {
+        dot.setAttribute("opacity", 0);
+        return;
+      }
+      dot.setAttribute("cx", cx);
+      dot.setAttribute("cy", y(v));
+      dot.setAttribute("opacity", 1);
+    });
+    void pad;
+    void innerH;
+  }
+
+  positionTip(event) {
+    const idx = this.hoverIndex;
+    if (idx < 0 || !this.geom) return;
+    const fmt = this.options.formatValue || ((v) => fmtTick(v));
+    const rows = this.series
+      .map((s) => {
+        const v = s.data[idx];
+        if (!Number.isFinite(v)) return "";
+        return `<div class="tt-row"><span class="tt-key"><span class="tt-dot" style="background:${s.color}"></span>${s.name}</span><span>${fmt(v)}</span></div>`;
+      })
+      .filter(Boolean)
+      .join("");
+    if (!rows) return this.clearHover();
+
+    const title = this.xLabels[idx] ?? `t${idx}`;
+    this.tip.innerHTML = `<div class="tt-title">${title}</div>${rows}`;
+    this.tip.classList.add("show");
+
+    const mountRect = this.mount.getBoundingClientRect();
+    let px = event.clientX - mountRect.left;
+    const tipW = this.tip.offsetWidth || 140;
+    px = Math.max(tipW / 2 + 2, Math.min(mountRect.width - tipW / 2 - 2, px));
+    this.tip.style.left = `${px}px`;
+    this.tip.style.top = `${Math.max(0, event.clientY - mountRect.top - 14)}px`;
+  }
+
+  clearHover() {
+    this.hoverIndex = -1;
+    this.tip.classList.remove("show");
+    if (this.hoverLine) this.hoverLine.setAttribute("opacity", 0);
+    this.hoverDots?.forEach((d) => d.setAttribute("opacity", 0));
+  }
+}
+
+/* ==========================================================================
+   StackBar: horizontal composition of the host capacity
+   segments: [{ name, value, color }]  total: number
+   ========================================================================== */
+function renderStackBar(mount, segments, total, opts = {}) {
+  mount.replaceChildren();
+  const host = document.createElement("div");
+  host.style.cssText =
+    "display:flex;height:" + (opts.height || 22) + "px;border-radius:7px;overflow:hidden;border:1px solid #1e2942;background:#0a0f1c;gap:2px;";
+
+  const realTotal = total > 0 ? total : segments.reduce((a, s) => a + s.value, 0) || 1;
+  segments.forEach((s) => {
+    if (s.value <= 0.0001) return;
+    const pct = (s.value / realTotal) * 100;
+    const div = document.createElement("div");
+    div.style.cssText = `width:${pct}%;background:${s.color};position:relative;transition:width .5s cubic-bezier(.22,1,.36,1);`;
+    div.title = `${s.name}: ${s.value}${opts.unit || ""}`;
+    if (pct > 11) {
+      const span = document.createElement("span");
+      span.textContent = `${Math.round(pct)}%`;
+      span.style.cssText =
+        "position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);font-size:9.5px;font-weight:700;color:rgba(4,8,16,.82);";
+      div.appendChild(span);
+    }
+    host.appendChild(div);
+  });
+
+  const free = total - segments.reduce((a, s) => a + s.value, 0);
+  if (free > 0.001) {
+    const div = document.createElement("div");
+    div.style.cssText = `width:${(free / realTotal) * 100}%;background:repeating-linear-gradient(135deg,#141d31,#141d31 5px,#101727 5px,#101727 10px);`;
+    div.title = `Idle: ${free.toFixed(2)}${opts.unit || ""}`;
+    host.appendChild(div);
+  }
+  mount.appendChild(host);
+}
+
+/* ==========================================================================
+   Gauge: radial utilisation dial
+   ========================================================================== */
+function renderGauge(mount, pct, opts = {}) {
+  const size = opts.size || 132;
+  const stroke = opts.stroke || 9;
+  const r = (size - stroke) / 2 - 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, pct));
+  const color = opts.color || "#5b8cff";
+
+  const svg = el("svg", { width: size, height: size, viewBox: `0 0 ${size} ${size}` });
+  svg.appendChild(el("circle", {
+    cx, cy, r, fill: "none", stroke: "#1a2338", "stroke-width": stroke,
+  }));
+  const arc = el("circle", {
+    cx, cy, r, fill: "none", stroke: color, "stroke-width": stroke,
+    "stroke-linecap": "round",
+    "stroke-dasharray": circumference,
+    "stroke-dashoffset": circumference,
+    transform: `rotate(-90 ${cx} ${cy})`,
+    style: "transition: stroke-dashoffset .7s cubic-bezier(.22,1,.36,1)",
+  });
+  svg.appendChild(arc);
+  requestAnimationFrame(() => {
+    arc.setAttribute("stroke-dashoffset", circumference * (1 - clamped / 100));
+  });
+
+  if (opts.trackColor) arc.setAttribute("stroke", opts.trackColor);
+
+  const label = el("text", {
+    x: cx, y: cy + 2, "text-anchor": "middle",
+    "font-family": "'JetBrains Mono', monospace", "font-size": 21,
+    "font-weight": 700, fill: "#e8eefc",
+  });
+  label.textContent = `${Math.round(clamped)}%`;
+  svg.appendChild(label);
+
+  if (opts.caption) {
+    const cap = el("text", {
+      x: cx, y: cy + 18, "text-anchor": "middle",
+      "font-family": "'JetBrains Mono', monospace", "font-size": 8.5,
+      fill: "#6b7a9b", "letter-spacing": "0.1em",
+    });
+    cap.textContent = opts.caption.toUpperCase();
+    svg.appendChild(cap);
+  }
+
+  mount.replaceChildren(svg);
+  return svg;
+}
+
+  return { PALETTE, colorFor, hexToRgba, LineChart, renderStackBar, renderGauge };
+})();
+
+__M['engine'] = (function () {
+  
+/* ==========================================================================
+   engine.js — browser mirror of the Python simulation core.
+
+   This file is a faithful port of `simulator/` (models, cpu_allocator,
+   memory_manager, workload, engine) so the simulator runs with no backend at
+   all — which is what allows GitHub Pages to host a fully working copy.
+
+   The allocation and memory logic is numerically identical to Python; the
+   cross-check in tests/test_js_parity.py asserts that for hundreds of random
+   configurations. Only the workload *noise* sequence differs, because Python's
+   Mersenne Twister is replaced by a small deterministic PRNG — so a given seed
+   is still reproducible, just not bit-identical to the server run.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ models */
+const MAX_CPU = 128;
+const MAX_MEMORY = 1024 * 1024;
+const MAX_CONTAINERS = 24;
+
+const round = (v, d = 4) => Math.round(v * 10 ** d) / 10 ** d;
+
+class ConfigError extends Error {}
+
+function number(raw, label, { minimum, maximum }) {
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (raw === "" || raw === null || raw === undefined || Number.isNaN(value)) {
+    throw new ConfigError(`${label} must be a number.`);
+  }
+  if (!Number.isFinite(value)) throw new ConfigError(`${label} must be a finite number.`);
+  if (value < minimum || value > maximum) {
+    throw new ConfigError(`${label} must be between ${minimum} and ${maximum}.`);
+  }
+  return round(value);
+}
+
+function validateConfig(raw) {
+  const host = raw.host || {};
+  const cfg = {
+    host: {
+      cpu: number(host.cpu, "Host CPU capacity", { minimum: 0.1, maximum: MAX_CPU }),
+      memory: number(host.memory, "Host memory capacity", { minimum: 64, maximum: MAX_MEMORY }),
+    },
+    containers: [],
+    policy: String(raw.policy || "weighted").toLowerCase(),
+    profile: String(raw.profile || "normal").toLowerCase(),
+    steps: Math.trunc(number(raw.steps ?? 12, "Steps", { minimum: 1, maximum: 120 })),
+    seed: Math.trunc(number(raw.seed ?? 7, "Seed", { minimum: 0, maximum: 1000000 })),
+  };
+
+  if (!Array.isArray(raw.containers) || raw.containers.length === 0) {
+    throw new ConfigError("At least one container is required.");
+  }
+  if (raw.containers.length > MAX_CONTAINERS) {
+    throw new ConfigError(`At most ${MAX_CONTAINERS} containers are supported.`);
+  }
+
+  const seen = new Set();
+  raw.containers.forEach((c, i) => {
+    const name = String(c.name ?? "").trim().slice(0, 32) || `ctr-${i + 1}`;
+    if (seen.has(name.toLowerCase())) throw new ConfigError(`Container name '${name}' is used twice.`);
+    seen.add(name.toLowerCase());
+    cfg.containers.push({
+      name,
+      demand: number(c.demand, `${name}: CPU demand`, { minimum: 0, maximum: MAX_CPU }),
+      cap: number(c.cap, `${name}: CPU cap`, { minimum: 0.01, maximum: MAX_CPU }),
+      weight: Math.trunc(number(c.weight, `${name}: weight`, { minimum: 1, maximum: 100 })),
+      mem_usage: number(c.mem_usage, `${name}: memory usage`, { minimum: 0, maximum: MAX_MEMORY }),
+      mem_limit: number(c.mem_limit, `${name}: memory limit`, { minimum: 1, maximum: MAX_MEMORY }),
+    });
+  });
+
+  if (!["weighted", "equal", "priority"].includes(cfg.policy)) {
+    throw new ConfigError(`Unknown CPU policy '${cfg.policy}'.`);
+  }
+  if (!["normal", "contention", "pressure", "burst"].includes(cfg.profile)) {
+    throw new ConfigError(`Unknown workload profile '${cfg.profile}'.`);
+  }
+  return cfg;
+}
+
+const eligibleDemand = (c) => round(Math.min(c.demand, c.cap));
+
+/* ----------------------------------------------------------- cpu allocator */
+const EPS = 1e-9;
+
+function weightsFor(specs, policy) {
+  if (policy === "equal") return specs.map(() => 1);
+  if (policy === "priority") {
+    return specs.map((s) => Math.max(1, Math.round(s.weight)) ** 12);
+  }
+  return specs.map((s) => Math.max(1, s.weight));
+}
+
+function allocateCpu(specs, capacity, policy = "weighted") {
+  if (capacity <= 0) throw new Error("Host CPU capacity must be positive.");
+  const weights = weightsFor(specs, policy);
+  const eligible = specs.map(eligibleDemand);
+  const allocated = new Array(specs.length).fill(0);
+
+  let remaining = capacity;
+  let active = eligible.map((e, i) => (e > EPS ? i : -1)).filter((i) => i >= 0);
+
+  while (active.length && remaining > EPS) {
+    const totalWeight = active.reduce((a, i) => a + weights[i], 0);
+    if (totalWeight <= 0) break;
+    const scale = remaining / totalWeight;
+    let served = 0;
+    const saturated = [];
+    for (const i of active) {
+      const want = eligible[i] - allocated[i];
+      const grant = Math.min(want, weights[i] * scale);
+      allocated[i] += grant;
+      served += grant;
+      if (want - grant <= EPS) saturated.push(i);
+    }
+    remaining = Math.max(0, remaining - served);
+    active = active.filter((i) => !saturated.includes(i));
+    if (!saturated.length) break;
+  }
+
+  const containers = specs.map((s, i) => {
+    const unmet = Math.max(0, s.demand - allocated[i]);
+    const throttlePct = s.demand > EPS ? (unmet / s.demand) * 100 : 0;
+    return {
+      name: s.name,
+      demand: round(s.demand, 3),
+      cap: round(s.cap, 3),
+      weight: s.weight,
+      eligible: round(eligible[i], 3),
+      allocated: round(allocated[i], 3),
+      unmet: round(unmet, 3),
+      throttled: throttlePct > 0.5,
+      throttle_pct: round(throttlePct, 2),
+      host_share_pct: round(capacity ? (allocated[i] / capacity) * 100 : 0, 2),
+    };
+  });
+
+  const totalDemand = specs.reduce((a, s) => a + s.demand, 0);
+  const totalEligible = eligible.reduce((a, b) => a + b, 0);
+  const totalAllocated = allocated.reduce((a, b) => a + b, 0);
+  const contention = totalEligible > capacity + EPS;
+
+  const notes = [];
+  notes.push(
+    contention
+      ? `Eligible demand ${totalEligible.toFixed(2)} vCPU exceeds host capacity ${capacity.toFixed(2)} vCPU - capacity is shared by relative weight.`
+      : `Eligible demand ${totalEligible.toFixed(2)} vCPU fits inside ${capacity.toFixed(2)} vCPU - no contention.`
+  );
+  const capped = containers.filter((c) => c.demand > c.cap + EPS).map((c) => c.name);
+  if (capped.length) notes.push(`CPU cap binds for ${capped.join(", ")} (demand is higher than the cap).`);
+  if (!contention && totalDemand > totalEligible) {
+    notes.push("Host capacity is idle because caps bound total demand.");
+  }
+
+  return {
+    policy,
+    capacity: round(capacity, 3),
+    total_demand: round(totalDemand, 3),
+    total_eligible: round(totalEligible, 3),
+    total_allocated: round(totalAllocated, 3),
+    idle_capacity: round(Math.max(0, capacity - totalAllocated), 3),
+    utilisation_pct: round(capacity ? (totalAllocated / capacity) * 100 : 0, 2),
+    contention,
+    overcommit_pct: round(capacity ? (Math.max(0, totalEligible - capacity) / capacity) * 100 : 0, 2),
+    containers,
+    notes,
+  };
+}
+
+/* -------------------------------------------------------- memory manager */
+const OOM_EXCESS_RATIO = 0.25;
+const NEAR_LIMIT_RATIO = 0.9;
+
+const reasonOom = (ratio) => ratio > 1 + OOM_EXCESS_RATIO;
+
+function evaluateMemory(specs, hostCapacity) {
+  const rows = [];
+  const events = [];
+
+  for (const spec of specs) {
+    const limit = spec.mem_limit;
+    const usage = spec.mem_usage;
+    const ratio = limit ? usage / limit : 0;
+    const excess = Math.max(0, usage - limit);
+
+    let status;
+    let event;
+    if (excess > 0 && reasonOom(ratio)) {
+      status = "oom";
+      event = `OOM (simulated): ${excess.toFixed(0)} MB above hard limit`;
+    } else if (excess > 0) {
+      status = "pressure";
+      event = `Memory pressure: ${excess.toFixed(0)} MB above hard limit`;
+    } else if (ratio >= NEAR_LIMIT_RATIO) {
+      status = "near";
+      event = `Near limit: ${(limit - usage).toFixed(0)} MB headroom left`;
+    } else {
+      status = "ok";
+      event = "Within hard limit";
+    }
+
+    if (status === "pressure" || status === "oom") {
+      events.push(`[${spec.name}] ${event} (${usage.toFixed(0)} / ${limit.toFixed(0)} MB, ${(ratio * 100).toFixed(1)}% of limit)`);
+    }
+
+    rows.push({
+      name: spec.name,
+      usage: round(usage, 1),
+      limit: round(limit, 1),
+      utilisation_pct: round(ratio * 100, 1),
+      headroom: round(limit - usage, 1),
+      excess: round(excess, 1),
+      status,
+      event,
+    });
+  }
+
+  const totalUsage = specs.reduce((a, s) => a + s.mem_usage, 0);
+  const totalLimit = specs.reduce((a, s) => a + s.mem_limit, 0);
+
+  return {
+    total_usage: round(totalUsage, 1),
+    total_limit: round(totalLimit, 1),
+    host_capacity: round(hostCapacity, 1),
+    host_usage_pct: round(hostCapacity ? (totalUsage / hostCapacity) * 100 : 0, 2),
+    host_pressure: totalUsage > hostCapacity,
+    pressure_count: rows.filter((r) => r.status === "pressure").length,
+    oom_count: rows.filter((r) => r.status === "oom").length,
+    near_count: rows.filter((r) => r.status === "near").length,
+    containers: rows,
+    events,
+  };
+}
+
+/* ------------------------------------------------------- workload profiles */
+const WORKLOAD_PROFILES = {
+  normal: {
+    key: "normal",
+    label: "Normal load",
+    description: "Steady, light traffic. Total eligible demand fits inside the host.",
+    cpu_scale: 0.7, cpu_jitter: 0.06, mem_growth: 0, mem_growth_pct: 0,
+    spike_step: -1, spike_cpu: 0, spike_mem: 0,
+  },
+  contention: {
+    key: "contention",
+    label: "CPU contention",
+    description: "Every container ramps to its full cap, so eligible demand exceeds the host.",
+    cpu_scale: 1.0, cpu_jitter: 0.05, mem_growth: 0, mem_growth_pct: 0,
+    spike_step: -1, spike_cpu: 0, spike_mem: 0,
+  },
+  pressure: {
+    key: "pressure",
+    label: "Memory pressure",
+    description: "Memory creeps upward each step until a container crosses its hard limit.",
+    cpu_scale: 0.85, cpu_jitter: 0.05, mem_growth: 0, mem_growth_pct: 0.055,
+    spike_step: -1, spike_cpu: 0, spike_mem: 0,
+  },
+  burst: {
+    key: "burst",
+    label: "Traffic burst",
+    description: "A sudden spike in the middle of the run, then recovery.",
+    cpu_scale: 0.9, cpu_jitter: 0.08, mem_growth: 0, mem_growth_pct: 0.018,
+    spike_step: 5, spike_cpu: 1.15, spike_mem: 140,
+  },
+};
+
+/** small deterministic PRNG so a seed always reproduces the same run */
+function makeRng(seed) {
+  let a = (seed >>> 0) || 1;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function generateStep(specs, profile, step, totalSteps, rng) {
+  const ramp = Math.min(1, 0.55 + (step / Math.max(1, totalSteps - 1)) * 0.75);
+  const eased = 0.35 + 0.65 * ramp;
+  const out = [];
+  const notes = [];
+
+  specs.forEach((spec, index) => {
+    const jitter = rng() * (profile.cpu_jitter * 2) - profile.cpu_jitter;
+    let demand = spec.demand * profile.cpu_scale * eased * (1 + jitter);
+
+    const spikeHit = profile.spike_step >= 0 && step === profile.spike_step;
+    if (spikeHit && index < Math.max(1, specs.length - 1)) {
+      demand += profile.spike_cpu * (index ? 0.55 : 1);
+    }
+    demand = clamp(round(demand, 3), 0, spec.cap * 2.4 + 1);
+
+    let memory = spec.mem_usage + profile.mem_growth * step + spec.mem_limit * profile.mem_growth_pct * step;
+    if (spikeHit && index === 0) memory += profile.spike_mem;
+    memory = clamp(round(memory, 1), 0, spec.mem_limit * 1.6);
+
+    out.push({
+      name: spec.name,
+      demand,
+      cap: spec.cap,
+      weight: spec.weight,
+      mem_usage: memory,
+      mem_limit: spec.mem_limit,
+    });
+  });
+
+  if (profile.spike_step === step) {
+    notes.push("Transient burst applied: CPU demand and memory spiked for one step.");
+  }
+  return { specs: out, notes };
+}
+
+/* ------------------------------------------------------------------ engine */
+class SimulationEngine {
+  constructor(raw) {
+    this.config = validateConfig(raw);
+    this.profile = WORKLOAD_PROFILES[this.config.profile];
+  }
+
+  evaluate(specs, step) {
+    const cpu = allocateCpu(specs, this.config.host.cpu, this.config.policy);
+    const mem = evaluateMemory(specs, this.config.host.memory);
+    const cpuBy = Object.fromEntries(cpu.containers.map((c) => [c.name, c]));
+    const memBy = Object.fromEntries(mem.containers.map((m) => [m.name, m]));
+
+    const containers = specs.map((spec) => {
+      const c = cpuBy[spec.name];
+      const m = memBy[spec.name];
+      let status;
+      if (m.status === "oom") status = "oom";
+      else if (m.status === "pressure") status = "pressure";
+      else if (c.throttled) status = "throttled";
+      else if (m.status === "near") status = "near";
+      else status = "normal";
+
+      return {
+        name: spec.name,
+        status,
+        cpu_demand: round(c.demand, 3),
+        cpu_cap: round(c.cap, 3),
+        weight: c.weight,
+        cpu_allocated: round(c.allocated, 3),
+        cpu_requested_capacity: round(spec.demand, 3),
+        cpu_throttle_pct: round(c.throttle_pct, 2),
+        host_share_pct: round(c.host_share_pct, 2),
+        mem_usage: round(m.usage, 1),
+        mem_limit: round(m.limit, 1),
+        mem_utilisation_pct: round(m.utilisation_pct, 1),
+        mem_excess: round(m.excess, 1),
+        mem_headroom: round(m.headroom, 1),
+        mem_status: m.status,
+        event: m.event,
+        pressure: m.status === "pressure" || m.status === "oom",
+      };
+    });
+
+    return { step, cpu, memory: mem, containers };
+  }
+
+  collectEvents(result, sink, baselineOnly = false) {
+    const tag = baselineOnly ? "Baseline" : `t${result.step}`;
+    if (result.cpu.contention) {
+      sink.push({
+        step: result.step, kind: "cpu", severity: "warn",
+        message: `${tag}: CPU contention - eligible demand ${result.cpu.total_eligible.toFixed(2)} vCPU vs ${result.cpu.capacity.toFixed(2)} vCPU available (${result.cpu.overcommit_pct.toFixed(0)}% overcommit).`,
+      });
+    }
+    result.cpu.containers.forEach((c) => {
+      if (c.unmet > 0.005) {
+        sink.push({
+          step: result.step, kind: "cpu", severity: "info",
+          message: `${tag}: ${c.name} throttled to ${c.allocated.toFixed(2)} vCPU (${c.throttle_pct.toFixed(0)}% of demand not served).`,
+        });
+      }
+    });
+    result.memory.events.forEach((ev) => {
+      sink.push({
+        step: result.step, kind: "memory",
+        severity: ev.includes("OOM") ? "critical" : "warn",
+        message: `${tag}: ${ev}`,
+      });
+    });
+    if (result.memory.host_pressure) {
+      sink.push({
+        step: result.step, kind: "memory", severity: "critical",
+        message: `${tag}: total container memory ${result.memory.total_usage.toFixed(0)} MB exceeds host capacity ${result.memory.host_capacity.toFixed(0)} MB.`,
+      });
+    }
+  }
+
+  run() {
+    const cfg = this.config;
+    const rng = makeRng(cfg.seed);
+    const steps = [];
+    const events = [];
+
+    const baseline = this.evaluate(cfg.containers, 0);
+    steps.push(baseline);
+    this.collectEvents(baseline, events, true);
+
+    for (let step = 1; step <= cfg.steps; step++) {
+      const { specs, notes } = generateStep(cfg.containers, this.profile, step, cfg.steps, rng);
+      const result = this.evaluate(specs, step);
+      steps.push(result);
+      notes.forEach((n) => events.push({ step, kind: "system", severity: "warn", message: n }));
+      this.collectEvents(result, events);
+    }
+
+    const final = steps[steps.length - 1];
+    return {
+      config: cfg,
+      profile: { key: this.profile.key, label: this.profile.label, description: this.profile.description },
+      baseline: this.toDict(baseline),
+      final: this.toDict(final),
+      series: this.series(steps),
+      timeline: this.timeline(steps),
+      events: events.slice(-60),
+      summary: this.summary(steps, events),
+      steps: steps.length,
+    };
+  }
+
+  toDict(r) {
+    return { step: r.step, cpu: r.cpu, memory: r.memory, containers: r.containers };
+  }
+
+  series(steps) {
+    const names = this.config.containers.map((c) => c.name);
+    const cpuAlloc = {};
+    const cpuDemand = {};
+    const memUsage = {};
+    const memLimit = {};
+    names.forEach((n) => {
+      cpuAlloc[n] = []; cpuDemand[n] = []; memUsage[n] = []; memLimit[n] = [];
+    });
+
+    steps.forEach((r) => {
+      r.containers.forEach((row) => {
+        cpuAlloc[row.name].push(row.cpu_allocated);
+        cpuDemand[row.name].push(round(row.cpu_demand, 3));
+        memUsage[row.name].push(row.mem_usage);
+        memLimit[row.name].push(row.mem_limit);
+      });
+    });
+
+    return {
+      labels: steps.map((r) => `t${r.step}`),
+      cpu_allocated: cpuAlloc,
+      cpu_demand: cpuDemand,
+      mem_usage: memUsage,
+      mem_limit: memLimit,
+      host_cpu: steps.map((r) => round(r.cpu.capacity, 3)),
+      host_mem: steps.map((r) => round(r.memory.host_capacity, 1)),
+      cpu_utilisation_pct: steps.map((r) => round(r.cpu.utilisation_pct, 2)),
+      avg_throttle_pct: steps.map((r) =>
+        round(r.containers.reduce((a, c) => a + c.cpu_throttle_pct, 0) / Math.max(1, r.containers.length), 2)
+      ),
+      mem_host_usage_pct: steps.map((r) => round(r.memory.host_usage_pct, 2)),
+    };
+  }
+
+  timeline(steps) {
+    return steps.map((r) => ({
+      step: r.step,
+      cpu: {
+        capacity: round(r.cpu.capacity, 3),
+        allocated: round(r.cpu.total_allocated, 3),
+        eligible: round(r.cpu.total_eligible, 3),
+        utilisation_pct: round(r.cpu.utilisation_pct, 2),
+        contention: r.cpu.contention,
+        idle: round(r.cpu.idle_capacity, 3),
+      },
+      memory: {
+        used: round(r.memory.total_usage, 1),
+        capacity: round(r.memory.host_capacity, 1),
+        pct: round(r.memory.host_usage_pct, 2),
+      },
+      containers: r.containers.map((c) => ({
+        name: c.name,
+        status: c.status,
+        cpu_allocated: c.cpu_allocated,
+        cpu_demand: c.cpu_demand,
+        cpu_cap: c.cpu_cap,
+        cpu_throttle_pct: c.cpu_throttle_pct,
+        mem_usage: c.mem_usage,
+        mem_limit: c.mem_limit,
+        mem_status: c.mem_status,
+        mem_excess: c.mem_excess,
+        event: c.event,
+      })),
+    }));
+  }
+
+  summary(steps, events) {
+    const contentionSteps = steps.filter((s) => s.cpu.contention).length;
+    const pressureSteps = steps.filter((s) => s.memory.pressure_count).length;
+    const oomSteps = steps.filter((s) => s.memory.oom_count).length;
+    const utils = steps.map((s) => s.cpu.utilisation_pct);
+    const peakMem = Math.max(...steps.map((s) => s.memory.total_usage), 0);
+
+    const contended = steps.filter((s) => s.cpu.contention);
+    const pool = contended.length ? contended : steps;
+    const fairness = this.config.containers.map((spec) => {
+      const got = pool.reduce((a, s) => {
+        const row = s.containers.find((r) => r.name === spec.name);
+        return a + (row ? row.cpu_allocated : 0);
+      }, 0) / pool.length;
+      const target = eligibleDemand(spec);
+      return {
+        name: spec.name,
+        avg_allocated: round(got, 3),
+        weight: spec.weight,
+        eligible: round(target, 3),
+        at_cap: got >= target - 0.01,
+      };
+    });
+
+    return {
+      contention_steps: contentionSteps,
+      pressure_steps: pressureSteps,
+      oom_steps: oomSteps,
+      avg_cpu_utilisation_pct: round(utils.reduce((a, b) => a + b, 0) / utils.length, 2),
+      avg_allocated_vcpu: round(steps.reduce((a, s) => a + s.cpu.total_allocated, 0) / steps.length, 3),
+      min_cpu_utilisation_pct: round(Math.min(...utils), 2),
+      peak_total_memory_mb: round(peakMem, 1),
+      host_memory_pct_peak: round(Math.max(...steps.map((s) => s.memory.host_usage_pct), 0), 2),
+      event_count: events.length,
+      critical_events: events.filter((e) => e.severity === "critical").length,
+      warn_events: events.filter((e) => e.severity === "warn").length,
+      fairness,
+      verdict: verdictFor(contentionSteps, pressureSteps, oomSteps, steps.length),
+    };
+  }
+}
+
+function verdictFor(contentionSteps, pressureSteps, oomSteps, totalSteps) {
+  if (oomSteps) {
+    return {
+      level: "critical",
+      title: "Resource exhaustion detected",
+      detail: `Simulated OOM occurred in ${oomSteps} of ${totalSteps} steps. Raise the offending container's memory limit or reduce its usage.`,
+    };
+  }
+  if (pressureSteps && contentionSteps) {
+    return {
+      level: "warn",
+      title: "Contention and memory pressure",
+      detail: `CPU contention in ${contentionSteps} steps and memory pressure in ${pressureSteps} steps. Scheduler and limits are both under strain.`,
+    };
+  }
+  if (pressureSteps) {
+    return {
+      level: "warn",
+      title: "Memory limits are tight",
+      detail: `Memory pressure in ${pressureSteps} of ${totalSteps} steps; CPU allocation stayed within the host.`,
+    };
+  }
+  if (contentionSteps) {
+    return {
+      level: "info",
+      title: "CPU contention, memory healthy",
+      detail: `Weighted fair-share absorbed an overcommitted host for ${contentionSteps} steps without any memory violation.`,
+    };
+  }
+  return {
+    level: "ok",
+    title: "Healthy run",
+    detail: "All containers stayed inside their CPU caps and memory hard limits.",
+  };
+}
+
+/* --------------------------------------------------------------- public API */
+function simulate(config) {
+  return new SimulationEngine(config).run();
+}
+
+function allocateOnce(config) {
+  const cfg = validateConfig(config);
+  return allocateCpu(cfg.containers, cfg.host.cpu, cfg.policy);
+}
+
+function comparePolicies(config, policies = ["weighted", "equal", "priority"]) {
+  const base = validateConfig(config);
+  const out = { policies: [] };
+  for (const policy of policies) {
+    const result = new SimulationEngine({ ...config, policy }).run();
+    out.policies.push({
+      policy,
+      utilisation_pct: result.summary.avg_cpu_utilisation_pct,
+      contention_steps: result.summary.contention_steps,
+      allocated: Object.fromEntries(result.final.containers.map((r) => [r.name, r.cpu_allocated])),
+      verdict: result.summary.verdict,
+    });
+  }
+  out.containers = base.containers.map((c) => c.name);
+  return out;
+}
+
+  return { MAX_CPU, MAX_MEMORY, MAX_CONTAINERS, ConfigError, validateConfig, eligibleDemand, allocateCpu, OOM_EXCESS_RATIO, NEAR_LIMIT_RATIO, evaluateMemory, WORKLOAD_PROFILES, generateStep, SimulationEngine, verdictFor, simulate, allocateOnce, comparePolicies };
+})();
+
+__M['scenarios'] = (function () {
+  
+/* ==========================================================================
+   scenarios.js — browser mirror of simulator/scenarios.py
+   The `deck` preset is the exact worked example from the presentation.
+   ========================================================================== */
+
+const PRACTICAL_PRESETS = [
+  {
+    id: "deck",
+    label: "Deck example - CPU contention",
+    blurb:
+      "The 4 vCPU / 3 container scenario from the presentation. Weighted sharing " +
+      "yields 1.6 + 1.6 + 0.8 vCPU; Worker is over its memory limit.",
+    tag: "reference",
+    host: { cpu: 4, memory: 4096 },
+    policy: "weighted",
+    profile: "contention",
+    steps: 10,
+    seed: 7,
+    containers: [
+      { name: "web", demand: 2.4, cap: 2, weight: 2, mem_usage: 700, mem_limit: 1024 },
+      { name: "database", demand: 2.5, cap: 2, weight: 2, mem_usage: 1800, mem_limit: 2048 },
+      { name: "worker", demand: 1.5, cap: 1, weight: 1, mem_usage: 1150, mem_limit: 1024 },
+    ],
+  },
+  {
+    id: "balanced",
+    label: "Healthy host, no contention",
+    blurb: "Three modest services that fit comfortably inside the host. Everything reports normal.",
+    tag: "baseline",
+    host: { cpu: 4, memory: 4096 },
+    policy: "weighted",
+    profile: "normal",
+    steps: 10,
+    seed: 3,
+    containers: [
+      { name: "web", demand: 0.9, cap: 1.5, weight: 3, mem_usage: 420, mem_limit: 1024 },
+      { name: "api", demand: 1.1, cap: 1.5, weight: 2, mem_usage: 610, mem_limit: 1024 },
+      { name: "cache", demand: 0.6, cap: 1, weight: 1, mem_usage: 780, mem_limit: 1024 },
+    ],
+  },
+  {
+    id: "oom",
+    label: "Memory OOM event",
+    blurb: "A leaky batch job creeps past its hard limit far enough to trigger a simulated OOM kill.",
+    tag: "fault injection",
+    host: { cpu: 4, memory: 4096 },
+    policy: "weighted",
+    profile: "pressure",
+    steps: 12,
+    seed: 11,
+    containers: [
+      { name: "web", demand: 1.2, cap: 1.5, weight: 3, mem_usage: 500, mem_limit: 1024 },
+      { name: "batch", demand: 1.6, cap: 1.5, weight: 1, mem_usage: 900, mem_limit: 1024 },
+      { name: "database", demand: 1.4, cap: 2, weight: 2, mem_usage: 1500, mem_limit: 2048 },
+    ],
+  },
+  {
+    id: "burst",
+    label: "Traffic burst spike",
+    blurb: "A mid-run traffic spike pushes demand past capacity for one step, then recovers.",
+    tag: "transient",
+    host: { cpu: 2, memory: 2048 },
+    policy: "weighted",
+    profile: "burst",
+    steps: 10,
+    seed: 5,
+    containers: [
+      { name: "gateway", demand: 1.1, cap: 1.4, weight: 3, mem_usage: 380, mem_limit: 768 },
+      { name: "service", demand: 0.9, cap: 1.2, weight: 2, mem_usage: 520, mem_limit: 900 },
+      { name: "telemetry", demand: 0.4, cap: 0.6, weight: 1, mem_usage: 210, mem_limit: 512 },
+    ],
+  },
+  {
+    id: "noisy",
+    label: "Noisy neighbour isolation",
+    blurb: "One greedy container is capped hard so its neighbours keep their share - isolation in action.",
+    tag: "isolation",
+    host: { cpu: 4, memory: 4096 },
+    policy: "weighted",
+    profile: "contention",
+    steps: 10,
+    seed: 9,
+    containers: [
+      { name: "noisy-job", demand: 5, cap: 0.5, weight: 1, mem_usage: 900, mem_limit: 1024 },
+      { name: "web", demand: 1.2, cap: 2, weight: 4, mem_usage: 600, mem_limit: 1024 },
+      { name: "database", demand: 1.6, cap: 2, weight: 4, mem_usage: 1600, mem_limit: 2048 },
+    ],
+  },
+  {
+    id: "many",
+    label: "Ten-container fleet",
+    blurb: "A denser host: ten small services whose combined eligible demand overcommits the CPU.",
+    tag: "scale",
+    host: { cpu: 8, memory: 8192 },
+    policy: "weighted",
+    profile: "contention",
+    steps: 10,
+    seed: 21,
+    containers: Array.from({ length: 10 }, (_, i) => ({
+      name: `svc-${String(i + 1).padStart(2, "0")}`,
+      demand: round2(0.9 + (i % 4) * 0.35),
+      cap: 1.5,
+      weight: 1 + (i % 3),
+      mem_usage: 300 + (i % 5) * 90,
+      mem_limit: 1024,
+    })),
+  },
+];
+
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+
+const PROFILES = [
+  { key: "normal", label: "Normal load", description: "Steady, light traffic. Total eligible demand fits inside the host." },
+  { key: "contention", label: "CPU contention", description: "Every container ramps to its full cap, so eligible demand exceeds the host." },
+  { key: "pressure", label: "Memory pressure", description: "Memory creeps upward each step until a container crosses its hard limit." },
+  { key: "burst", label: "Traffic burst", description: "A sudden spike in the middle of the run, then recovery." },
+];
+
+const POLICIES = [
+  { key: "weighted", label: "Weighted fair-share", detail: "Share follows weight" },
+  { key: "equal", label: "Equal share", detail: "Every container weighted 1" },
+  { key: "priority", label: "Strict priority", detail: "Highest weight served first" },
+];
+
+function presetById(id) {
+  return PRACTICAL_PRESETS.find((p) => p.id === id);
+}
+
+  return { PRACTICAL_PRESETS, PROFILES, POLICIES, presetById };
+})();
+
+__M['client'] = (function () {
+  const { simulate, allocateOnce, comparePolicies, WORKLOAD_PROFILES } = __M['engine'];
+  const { PRACTICAL_PRESETS, PROFILES, POLICIES } = __M['scenarios'];
+/* ==========================================================================
+   client.js — dual-mode engine client.
+
+   The simulator ships two interchangeable backends:
+
+     "server" — POSTs to the Flask API (`/api/simulate`, ...). This is the
+                reference implementation: Python runs the model.
+
+     "client" — runs the exact same model in the browser (js/engine.js).
+                Used automatically when no backend is reachable, which is what
+                lets GitHub Pages host a fully working copy of the simulator.
+
+   The active mode is probed once at startup against /api/health and exposed on
+   `engineMode` so the header pill can show which engine is live.
+   ========================================================================== */
+
+
+
+
+const engineMode = { current: "client", label: "LOCAL ENGINE" };
+
+const PROBE_TIMEOUT = 2500;
+
+async function withTimeout(promise, ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await promise(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Decide server vs client once. Safe to call repeatedly. */
+let probePromise = null;
+function detectEngine() {
+  if (!probePromise) {
+    probePromise = (async () => {
+      try {
+        const res = await withTimeout(
+          (signal) => fetch("/api/health", { signal, headers: { Accept: "application/json" } }),
+          PROBE_TIMEOUT
+        );
+        const data = res.ok ? await res.json() : null;
+        if (data && data.status === "ok") {
+          engineMode.current = "server";
+          engineMode.label = "PYTHON ENGINE";
+          return engineMode;
+        }
+      } catch {
+        /* static hosting: no backend, stay on the local engine */
+      }
+      engineMode.current = "client";
+      engineMode.label = "LOCAL ENGINE";
+      return engineMode;
+    })();
+  }
+  return probePromise;
+}
+
+/* ------------------------------------------------------------ server calls */
+async function postJson(path, payload) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+async function getJson(path) {
+  const res = await fetch(path, { headers: { Accept: "application/json" } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+/** Small delay keeps the UI's "Running…" state visible instead of flashing. */
+const settle = () => new Promise((r) => setTimeout(r, 120));
+
+/* ---------------------------------------------------------------- public API */
+async function getMeta() {
+  await detectEngine();
+  if (engineMode.current === "server") {
+    try {
+      return await getJson("/api/presets");
+    } catch {
+      /* fall through to the built-in metadata; engine mode is unaffected */
+    }
+  }
+  return {
+    presets: PRACTICAL_PRESETS,
+    profiles: Object.values(WORKLOAD_PROFILES).map((p) => ({
+      key: p.key,
+      label: p.label,
+      description: p.description,
+    })),
+    policies: POLICIES,
+    thresholds: { near_limit_ratio: 0.9, oom_excess_ratio: 0.25 },
+  };
+}
+
+async function runSimulation(config) {
+  await detectEngine();
+  if (engineMode.current === "server") {
+    try {
+      return await postJson("/api/simulate", config);
+    } catch (err) {
+      // A validation error from the server should surface, not silently fall back.
+      if (/must be|required|used twice|Unknown/i.test(err.message)) throw err;
+      engineMode.current = "client";
+      engineMode.label = "LOCAL ENGINE";
+    }
+  }
+  await settle();
+  return simulate(config);
+}
+
+async function runAllocate(config) {
+  await detectEngine();
+  if (engineMode.current === "server") {
+    try {
+      return await postJson("/api/allocate", config);
+    } catch {
+      engineMode.current = "client";
+      engineMode.label = "LOCAL ENGINE";
+    }
+  }
+  return allocateOnce(config);
+}
+
+async function runCompare(config) {
+  await detectEngine();
+  if (engineMode.current === "server") {
+    try {
+      return await postJson("/api/compare", config);
+    } catch {
+      engineMode.current = "client";
+      engineMode.label = "LOCAL ENGINE";
+    }
+  }
+  return comparePolicies(config);
+}
+
+function getPreset(id) {
+  const preset = PRACTICAL_PRESETS.find((p) => p.id === id);
+  return preset ? { preset, config: preset } : { preset: null, config: null };
+}
+
+
+
+  return { engineMode, detectEngine, getMeta, runSimulation, runAllocate, runCompare, getPreset };
+})();
+
+__M['app'] = (function () {
+  const { LineChart, renderStackBar, renderGauge, colorFor, hexToRgba } = __M['charts'];
+  const { engineMode, detectEngine, getMeta, runSimulation: engineRun, runCompare: engineCompare } = __M['client'];
+/* ==========================================================================
+   app.js - Container Resource Allocation Simulator frontend
+   ========================================================================== */
+
+
+
+
+/* ---------------------------------------------------------------- helpers */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+const num = (v, digits = 2) => {
+  if (!Number.isFinite(v)) return "-";
+  return v.toFixed(digits).replace(/\.?0+$/, "") || "0";
+};
+const fixed = (v, digits = 2) => (Number.isFinite(v) ? v.toFixed(digits) : "-");
+const pct = (v, digits = 1) => (Number.isFinite(v) ? `${v.toFixed(digits)}%` : "-");
+const mb = (v) => `${Math.round(v).toLocaleString()} MB`;
+
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const statusLabel = {
+  normal: "Normal",
+  ok: "Normal",
+  near: "Near limit",
+  throttled: "CPU throttled",
+  pressure: "Memory pressure",
+  oom: "OOM kill",
+};
+
+const ICONS = {
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg>',
+  pulse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>',
+  zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>',
+  ram: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 17v3m4-3v3m4-3v3m4-3v3M7 11h2m3 0h2m3 0h2"/></svg>',
+  cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3M19 9h3m-3 6h3"/></svg>',
+  layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>',
+  reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m0 0-6-6m6 6-6 6"/></svg>',
+  box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v8a2 2 0 0 1-1 1.7l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.7l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>',
+};
+
+/* ------------------------------------------------------------------ state */
+const state = {
+  presets: [],
+  profiles: [],
+  policies: [],
+  activePreset: "deck",
+  config: null,
+  result: null,
+  scrubStep: 0,
+  playing: false,
+  playTimer: null,
+  compare: null,
+  busy: false,
+};
+
+const charts = {};
+
+/* ------------------------------------------------------------------- API */
+/* All data access goes through client.js, which transparently uses the Python
+   backend when it is reachable and the in-browser engine otherwise. */
+
+function setEnginePill() {
+  const pill = $("#engine-pill");
+  if (!pill) return;
+  pill.querySelector(".label").textContent = engineMode.label;
+  pill.dataset.mode = engineMode.current;
+  pill.title =
+    engineMode.current === "server"
+      ? "Simulation is running in the Python/Flask backend"
+      : "No backend detected - the identical simulation model is running in your browser";
+}
+
+/* ----------------------------------------------------------------- toast */
+function toast(title, message, kind = "error") {
+  const host = $("#toasts");
+  const node = document.createElement("div");
+  node.className = `toast ${kind}`;
+  node.innerHTML = `
+    <span class="t-icon">${kind === "success" ? ICONS.check : ICONS.alert}</span>
+    <div class="t-body">
+      <div class="t-title">${esc(title)}</div>
+      ${message ? `<div class="t-msg">${esc(message)}</div>` : ""}
+    </div>`;
+  host.appendChild(node);
+  setTimeout(() => {
+    node.style.opacity = "0";
+    node.style.transform = "translateX(20px)";
+    node.style.transition = "opacity .25s, transform .25s";
+    setTimeout(() => node.remove(), 260);
+  }, 4600);
+}
+
+/* ------------------------------------------------------------ configuration */
+function defaultConfig() {
+  return {
+    host: { cpu: 4, memory: 4096 },
+    containers: [
+      { name: "web", demand: 2.4, cap: 2, weight: 2, mem_usage: 700, mem_limit: 1024 },
+      { name: "database", demand: 2.5, cap: 2, weight: 2, mem_usage: 1800, mem_limit: 2048 },
+      { name: "worker", demand: 1.5, cap: 1, weight: 1, mem_usage: 1150, mem_limit: 1024 },
+    ],
+    policy: "weighted",
+    profile: "contention",
+    steps: 10,
+    seed: 7,
+  };
+}
+
+function readConfigFromForm() {
+  const containers = $$(".editor-row").map((row) => ({
+    name: $(".ctr-name-input", row).value.trim() || "container",
+    demand: parseFloat($('[data-field="demand"]', row).value) || 0,
+    cap: parseFloat($('[data-field="cap"]', row).value) || 0,
+    weight: parseInt($('[data-field="weight"]', row).value, 10) || 1,
+    mem_usage: parseFloat($('[data-field="mem_usage"]', row).value) || 0,
+    mem_limit: parseFloat($('[data-field="mem_limit"]', row).value) || 0,
+  }));
+  return {
+    host: {
+      cpu: parseFloat($("#host-cpu").value) || 0,
+      memory: parseFloat($("#host-mem").value) || 0,
+    },
+    containers,
+    policy: $("#policy-select").value,
+    profile: $("#profile-select").value,
+    steps: parseInt($("#steps-input").value, 10) || 10,
+    seed: parseInt($("#seed-input").value, 10) || 7,
+  };
+}
+
+/* --------------------------------------------------------------- rendering */
+function renderEditor() {
+  const host = $("#editor-list");
+  host.replaceChildren();
+  state.config.containers.forEach((c, index) => {
+    const node = document.createElement("div");
+    node.className = "editor-row";
+    node.dataset.index = String(index);
+    node.innerHTML = `
+      <div class="editor-row-head">
+        <span class="mini-dot" style="background:${colorFor(index)}"></span>
+        <input type="text" class="ctr-name-input" value="${esc(c.name)}" maxlength="24" spellcheck="false" aria-label="Container name" />
+        <button class="icon-btn" data-action="remove" title="Remove container" ${state.config.containers.length <= 1 ? "disabled" : ""}>${ICONS.trash}</button>
+      </div>
+      <div class="editor-grid">
+        <div class="editor-field"><label>CPU demand</label><input type="number" step="0.1" min="0" data-field="demand" value="${c.demand}" /></div>
+        <div class="editor-field"><label>CPU cap</label><input type="number" step="0.1" min="0.1" data-field="cap" value="${c.cap}" /></div>
+        <div class="editor-field"><label>Weight</label><input type="number" step="1" min="1" data-field="weight" value="${c.weight}" /></div>
+        <div class="editor-field"><label>Mem use MB</label><input type="number" step="10" min="0" data-field="mem_usage" value="${c.mem_usage}" /></div>
+        <div class="editor-field"><label>Mem limit MB</label><input type="number" step="10" min="1" data-field="mem_limit" value="${c.mem_limit}" /></div>
+        <div class="editor-field"><label>Eligible</label><input type="text" data-field="eligible" value="" readonly tabindex="-1" /></div>
+      </div>`;
+    host.appendChild(node);
+  });
+  updateEligiblePreview();
+}
+
+function updateEligiblePreview() {
+  $$(".editor-row").forEach((row) => {
+    const demand = parseFloat($('[data-field="demand"]', row).value) || 0;
+    const cap = parseFloat($('[data-field="cap"]', row).value) || 0;
+    const eligible = Math.min(demand, cap);
+    const field = $('[data-field="eligible"]', row);
+    field.value = `${num(eligible)} vCPU`;
+    field.style.color = demand > cap ? "#ffb545" : "#9aa8c7";
+  });
+}
+
+/* --------------------------------------------------------------- presets UI */
+function renderPresets() {
+  const host = $("#preset-list");
+  host.replaceChildren();
+  state.presets.forEach((preset) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `preset-item${preset.id === state.activePreset ? " active" : ""}`;
+    btn.innerHTML = `
+      <span class="preset-icon">${preset.id === "oom" ? ICONS.alert : preset.id === "many" ? ICONS.layers : ICONS.box}</span>
+      <span class="preset-body">
+        <span class="preset-name">${esc(preset.label)}</span>
+        <span class="preset-blurb">${esc(preset.blurb)}</span>
+      </span>`;
+    btn.addEventListener("click", () => loadPreset(preset.id));
+    host.appendChild(btn);
+  });
+}
+
+async function loadPreset(id) {
+  const preset = state.presets.find((p) => p.id === id);
+  if (!preset) return;
+  state.activePreset = id;
+  state.config = {
+    host: { ...preset.host },
+    containers: preset.containers.map((c) => ({ ...c })),
+    policy: preset.policy,
+    profile: preset.profile,
+    steps: preset.steps,
+    seed: preset.seed,
+  };
+  syncForm();
+  renderEditor();
+  renderPresets();
+  await runSimulation({ silent: true });
+  toast("Scenario loaded", preset.label, "success");
+}
+
+function syncForm() {
+  $("#host-cpu").value = state.config.host.cpu;
+  $("#host-mem").value = state.config.host.memory;
+  $("#policy-select").value = state.config.policy;
+  $("#profile-select").value = state.config.profile;
+  $("#steps-input").value = state.config.steps;
+  $("#seed-input").value = state.config.seed;
+  $$("#policy-seg button").forEach((b) => b.classList.toggle("active", b.dataset.policy === state.config.policy));
+}
+
+/* --------------------------------------------------------------- simulation */
+async function runSimulation({ silent = false } = {}) {
+  if (state.busy) return;
+  state.config = readConfigFromForm();
+  state.busy = true;
+  stopPlayback();
+  const btn = $("#run-btn");
+  btn.disabled = true;
+  btn.innerHTML = `${ICONS.pulse}<span>Running…</span>`;
+
+  try {
+    const result = await engineRun(state.config);
+    state.result = result;
+    state.scrubStep = result.timeline.length - 1;
+    renderAll();
+    if (!silent) toast("Simulation complete", `${result.profile.label} · ${result.steps} steps`, "success");
+  } catch (err) {
+    console.error("[simulate] ", err);
+    toast("Cannot run simulation", err.message);
+  } finally {
+    state.busy = false;
+    btn.disabled = false;
+    btn.innerHTML = `${ICONS.play}<span>Run simulation</span>`;
+  }
+}
+
+/* ---------------------------------------------------------------- rendering */
+function renderAll() {
+  if (!state.result) return;
+  renderMetrics();
+  renderContainers();
+  renderTimeSeries();
+  renderHostBars();
+  renderTable();
+  renderLog();
+  renderSemantics();
+  renderScrubber();
+  renderCompare();
+}
+
+function currentFrame() {
+  const r = state.result;
+  if (!r) return null;
+  return r.timeline[Math.min(state.scrubStep, r.timeline.length - 1)];
+}
+
+function renderMetrics() {
+  const frame = currentFrame();
+  const sum = state.result.summary;
+  if (!frame) return;
+
+  const hostCpu = state.config.host.cpu;
+  const hostMem = state.config.host.memory;
+  const overcommit = frame.cpu.eligible > hostCpu;
+  const throttled = frame.containers.filter((c) => c.cpu_throttle_pct > 0.5).length;
+  const pressured = frame.containers.filter((c) => c.mem_status === "pressure" || c.mem_status === "oom").length;
+
+  const metrics = [
+    {
+      label: "CPU allocated",
+      value: fixed(frame.cpu.allocated, 2),
+      unit: `/ ${fixed(hostCpu, 1)} vCPU`,
+      sub: `${pct(frame.cpu.utilisation_pct)} of host capacity`,
+      accent: "accent-cyan",
+      meter: frame.cpu.utilisation_pct,
+      meterClass: frame.cpu.utilisation_pct > 95 ? "crit" : frame.cpu.utilisation_pct > 75 ? "warn" : "ok",
+      icon: ICONS.cpu,
+    },
+    {
+      label: "Memory in use",
+      value: Math.round(frame.memory.used).toLocaleString(),
+      unit: `/ ${Math.round(hostMem).toLocaleString()} MB`,
+      sub: `${pct(frame.memory.pct)} of host RAM`,
+      accent: frame.memory.pct > 100 ? "accent-red" : frame.memory.pct > 85 ? "accent-amber" : "accent-violet",
+      meter: frame.memory.pct,
+      meterClass: frame.memory.pct > 100 ? "crit" : frame.memory.pct > 85 ? "warn" : "ok",
+      icon: ICONS.ram,
+    },
+    {
+      label: "Containers",
+      value: String(state.result.timeline[0].containers.length),
+      unit: "workloads",
+      sub: `${throttled} throttled · ${pressured} pressured`,
+      accent: "accent-amber",
+      meter: null,
+      icon: ICONS.box,
+    },
+    {
+      label: "Overcommit",
+      value: overcommit ? `+${fixed(((frame.cpu.eligible - hostCpu) / hostCpu) * 100, 1)}` : "0",
+      unit: "%",
+      sub: `eligible ${fixed(frame.cpu.eligible, 2)} vCPU vs ${fixed(hostCpu, 2)}`,
+      accent: overcommit ? "accent-red" : "accent-green",
+      meter: null,
+      icon: ICONS.zap,
+    },
+  ];
+
+  $("#metric-grid").innerHTML = metrics
+    .map(
+      (m) => `
+    <div class="metric ${m.accent}">
+      <div class="metric-label">${m.icon}<span>${m.label}</span></div>
+      <div class="metric-value">${m.value}<span class="unit">${m.unit}</span></div>
+      <div class="metric-sub">${m.sub}</div>
+      ${
+        m.meter !== null
+          ? `<div class="meter thin ${m.meterClass}" style="margin-top:9px"><span style="width:${Math.min(100, Math.max(0, m.meter))}%"></span></div>`
+          : ""
+      }
+    </div>`
+    )
+    .join("");
+
+  // verdict
+  const v = sum.verdict;
+  const vIcon = { ok: ICONS.check, info: ICONS.info, warn: ICONS.alert, critical: ICONS.alert }[v.level] || ICONS.info;
+  $("#verdict").className = `verdict ${v.level}`;
+  $("#verdict").innerHTML = `
+    <div class="verdict-icon">${vIcon}</div>
+    <div>
+      <div class="verdict-title">${esc(v.title)}</div>
+      <div class="verdict-detail">${esc(v.detail)}</div>
+    </div>`;
+}
+
+function renderContainers() {
+  const frame = currentFrame();
+  if (!frame) return;
+  const host = $("#ctr-grid");
+  host.replaceChildren();
+
+  frame.containers.forEach((c, index) => {
+    const statusClass = c.status === "normal" ? "" : `s-${c.status}`;
+    const card = document.createElement("div");
+    card.className = `ctr-card ${statusClass}`;
+    const capPct = c.cpu_cap > 0 ? (c.cpu_allocated / c.cpu_cap) * 100 : 0;
+    const memPct = c.mem_limit > 0 ? (c.mem_usage / c.mem_limit) * 100 : 0;
+    const memClass = memPct > 100 ? "crit" : memPct > 90 ? "warn" : "ok";
+
+    card.innerHTML = `
+      <div class="ctr-head">
+        <span class="ctr-avatar" style="background:linear-gradient(135deg, ${colorFor(index)}, ${hexToRgba(colorFor(index), 0.45)})">${esc((c.name[0] || "?").toUpperCase())}</span>
+        <span class="grow" style="min-width:0">
+          <div class="ctr-name">${esc(c.name)}</div>
+          <div class="ctr-meta">w=${esc(state.config.containers[index]?.weight ?? "-")} · cap ${num(c.cpu_cap)} vCPU · demand ${num(c.cpu_demand)}</div>
+        </span>
+        <span class="badge ${c.status}">${statusLabel[c.status] || c.status}</span>
+      </div>
+      <div class="ctr-stats">
+        <div>
+          <div class="ctr-stat-row">
+            <span class="ctr-stat-label">CPU</span>
+            <span class="ctr-stat-value">${fixed(c.cpu_allocated, 2)} <span class="unit">vCPU</span></span>
+          </div>
+          <div class="meter thin ${capPct > 99 ? "warn" : "ok"}" style="margin-top:5px"><span style="width:${Math.min(100, capPct)}%"></span></div>
+          <div class="ctr-stat-row" style="margin-top:4px">
+            <span class="tiny faint mono">demand ${fixed(c.cpu_demand, 2)}</span>
+            <span class="tiny mono" style="color:${c.cpu_throttle_pct > 1 ? "#ffb545" : "#6b7a9b"}">${c.cpu_throttle_pct > 1 ? `throttled ${pct(c.cpu_throttle_pct, 0)}` : "not throttled"}</span>
+          </div>
+        </div>
+        <div>
+          <div class="ctr-stat-row">
+            <span class="ctr-stat-label">Memory</span>
+            <span class="ctr-stat-value" style="color:${memPct > 100 ? "#ff8b9c" : memPct > 90 ? "#ffc46b" : "inherit"}">${Math.round(c.mem_usage)} <span class="unit">/ ${Math.round(c.mem_limit)} MB</span></span>
+          </div>
+          <div class="meter thin ${memClass}" style="margin-top:5px"><span style="width:${Math.min(100, memPct)}%"></span></div>
+          <div class="ctr-stat-row" style="margin-top:4px">
+            <span class="tiny faint mono">${pct(memPct, 0)} of limit</span>
+            <span class="tiny mono" style="color:${c.mem_excess > 0 ? "#ff8b9c" : "#6b7a9b"}">${c.mem_excess > 0 ? `+${Math.round(c.mem_excess)} MB over` : `${Math.round(c.mem_limit - c.mem_usage)} MB free`}</span>
+          </div>
+        </div>
+      </div>
+      <div class="ctr-foot">
+        <span>${Math.round((c.cpu_allocated / Math.max(state.config.host.cpu, 0.0001)) * 100)}% of host CPU</span>
+        <span style="color:${c.mem_excess > 0 ? "#ff8b9c" : "#6b7a9b"}">${esc(c.event)}</span>
+      </div>`;
+    host.appendChild(card);
+  });
+}
+
+function renderTimeSeries() {
+  const r = state.result;
+  const names = r.timeline[0].containers.map((c) => c.name);
+
+  /* ---- CPU allocation chart ---- */
+  const cpuSeries = names.map((name, i) => ({
+    name,
+    data: r.series.cpu_allocated[name] || [],
+    color: colorFor(i),
+    width: 2,
+  }));
+  cpuSeries.push({
+    name: "Host capacity",
+    data: r.series.host_cpu,
+    color: "#ff8a4c",
+    dashed: true,
+    width: 1.4,
+    noTip: true,
+  });
+
+  if (!charts.cpu) charts.cpu = new LineChart($("#chart-cpu"), { height: 210, formatValue: (v) => `${v.toFixed(2)} vCPU` });
+  charts.cpu.options.capacity = { value: state.config.host.cpu, label: `host ${num(state.config.host.cpu)} vCPU`, color: "#ff8a4c" };
+  charts.cpu.setData(cpuSeries, r.series.labels);
+
+  /* ---- memory chart ---- */
+  const memSeries = names.map((name, i) => ({
+    name,
+    data: r.series.mem_usage[name] || [],
+    color: colorFor(i),
+    width: 2,
+  }));
+  if (!charts.mem) charts.mem = new LineChart($("#chart-mem"), { height: 210, formatValue: (v) => `${Math.round(v)} MB` });
+  charts.mem.setData(memSeries, r.series.labels);
+
+}
+
+function renderHostBars() {
+  const frame = currentFrame();
+  if (!frame) return;
+  const names = frame.containers.map((c) => c.name);
+
+  /* ---- host composition bar ---- */
+  const segments = frame.containers.map((c, i) => ({ name: c.name, value: c.cpu_allocated, color: colorFor(i) }));
+  renderStackBar($("#stackbar-cpu"), segments, state.config.host.cpu, { unit: " vCPU" });
+
+  const memSegments = frame.containers.map((c, i) => ({ name: c.name, value: c.mem_usage, color: colorFor(i) }));
+  renderStackBar($("#stackbar-mem"), memSegments, state.config.host.memory, { unit: " MB" });
+
+  /* ---- gauges ---- */
+  renderGauge($("#gauge-cpu"), frame.cpu.utilisation_pct, {
+    size: 108, stroke: 8, color: frame.cpu.utilisation_pct > 95 ? "#ffb545" : "#5b8cff", caption: "cpu used",
+  });
+  renderGauge($("#gauge-mem"), frame.memory.pct, {
+    size: 108, stroke: 8,
+    color: frame.memory.pct > 100 ? "#ff5d73" : frame.memory.pct > 85 ? "#ffb545" : "#2ee6d6",
+    caption: "ram used",
+  });
+
+  /* ---- legends ---- */
+  $("#legend-cpu").innerHTML = names
+    .map((n, i) => `<span class="legend-item"><span class="legend-swatch" style="background:${colorFor(i)}"></span>${esc(n)}</span>`)
+    .join("") +
+    `<span class="legend-item"><span class="legend-swatch" style="background:repeating-linear-gradient(90deg,#ff8a4c 0 3px,transparent 3px 6px)"></span>host capacity</span>`;
+
+  $("#legend-mem").innerHTML = names
+    .map((n, i) => `<span class="legend-item"><span class="legend-swatch" style="background:${colorFor(i)}"></span>${esc(n)}</span>`)
+    .join("");
+}
+
+function renderTable() {
+  const frame = currentFrame();
+  const tbody = $("#result-tbody");
+  tbody.replaceChildren();
+
+  frame.containers.forEach((c, index) => {
+    const tr = document.createElement("tr");
+    const allocPctOfCap = c.cpu_cap > 0 ? (c.cpu_allocated / c.cpu_cap) * 100 : 0;
+    tr.innerHTML = `
+      <td><span class="table-name"><span class="mini-dot" style="background:${colorFor(index)}"></span>${esc(c.name)}</span></td>
+      <td class="num mono">${fixed(c.cpu_demand, 2)}</td>
+      <td class="num mono">${fixed(c.cpu_cap, 2)}</td>
+      <td class="num mono">${esc(state.config.containers[index]?.weight ?? "-")}</td>
+      <td class="num mono" style="color:#a9c2ff;font-weight:600">${fixed(c.cpu_allocated, 2)}</td>
+      <td class="num mono">
+        <span style="display:inline-flex;align-items:center;gap:6px;justify-content:flex-end">
+          ${fixed(c.cpu_throttle_pct, 0)}%
+          <span class="meter thin" style="width:38px"><span style="width:${Math.min(100, allocPctOfCap)}%"></span></span>
+        </span>
+      </td>
+      <td class="num mono">${Math.round(c.mem_usage)} / ${Math.round(c.mem_limit)}</td>
+      <td class="num mono" style="color:${c.mem_excess > 0 ? "#ff8b9c" : c.mem_usage / c.mem_limit > 0.9 ? "#ffc46b" : "#9aa8c7"}">${pct((c.mem_usage / Math.max(1, c.mem_limit)) * 100, 0)}</td>
+      <td><span class="badge ${c.status}">${statusLabel[c.status] || c.status}</span></td>`;
+    tbody.appendChild(tr);
+  });
+
+  const t = frame.cpu;
+  $("#result-tfoot").innerHTML = `
+    <tr>
+      <td colspan="4" style="color:var(--text-faint);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700">Totals · step ${frame.step}</td>
+      <td class="num mono" style="font-weight:700">${fixed(t.allocated, 2)}</td>
+      <td class="num mono">${pct(t.utilisation_pct, 0)} used</td>
+      <td class="num mono">${Math.round(frame.memory.used)} / ${Math.round(frame.memory.capacity)}</td>
+      <td class="num mono">${pct(frame.memory.pct, 0)}</td>
+      <td>${t.contention ? '<span class="badge warn">contention</span>' : '<span class="badge normal">healthy</span>'}</td>
+    </tr>`;
+}
+
+function renderLog() {
+  const host = $("#event-log");
+  const events = (state.result.events || []).slice().reverse();
+  if (!events.length) {
+    host.innerHTML = `<div class="empty-state">No resource events in this run — every container stayed within its caps and limits.</div>`;
+    return;
+  }
+  host.innerHTML = events
+    .map(
+      (e) => `
+    <div class="log-row ${e.severity}">
+      <span class="log-step">t${e.step}</span>
+      <span class="log-kind ${e.kind}">${esc(e.kind)}</span>
+      <span class="log-msg">${esc(e.message)}</span>
+    </div>`
+    )
+    .join("");
+}
+
+/* ------------------------------------------------ explain-the-run semantics */
+function renderSemantics() {
+  const frame = currentFrame();
+  const cfg = state.config;
+  const host = cfg.host.cpu;
+
+  // CPU allocation walkthrough
+  const rows = frame.containers.map((c, i) => {
+    const weight = cfg.containers[i]?.weight ?? 1;
+    return { ...c, weight, color: colorFor(i) };
+  });
+  const eligibleTotal = rows.reduce((a, r) => a + Math.min(r.cpu_demand, r.cpu_cap), 0);
+  const contention = eligibleTotal > host;
+
+  $("#cpu-math").innerHTML = `
+    <div class="formula" style="margin-bottom:12px">
+      e<sub>i</sub> = min(d<sub>i</sub>, q<sub>i</sub>) &nbsp;<span class="cm">→</span>&nbsp;
+      Σe = <span class="hl">${fixed(eligibleTotal, 2)}</span> vCPU
+      &nbsp;<span class="cm">${contention ? ">" : "≤"}</span>&nbsp;
+      C = <span class="hl">${fixed(host, 2)}</span> vCPU
+      <br><span class="cm">${contention ? "contention → share by weight" : "fits → no redistribution needed"}</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Container</th><th class="num">d<sub>i</sub></th><th class="num">q<sub>i</sub></th>
+        <th class="num">e<sub>i</sub></th><th class="num">w<sub>i</sub></th><th class="num">a<sub>i</sub></th>
+      </tr></thead>
+      <tbody>
+        ${rows
+          .map(
+            (r) => `<tr>
+          <td><span class="table-name"><span class="mini-dot" style="background:${r.color}"></span>${esc(r.name)}</span></td>
+          <td class="num mono">${fixed(r.cpu_demand, 2)}</td>
+          <td class="num mono">${fixed(r.cpu_cap, 2)}</td>
+          <td class="num mono">${fixed(Math.min(r.cpu_demand, r.cpu_cap), 2)}</td>
+          <td class="num mono">${r.weight}</td>
+          <td class="num mono" style="color:#a9c2ff;font-weight:700">${fixed(r.cpu_allocated, 2)}</td>
+        </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>
+    <div class="notice" style="margin-top:12px">${ICONS.info}
+      <span>${contention
+        ? `Total eligible demand ${fixed(eligibleTotal, 2)} vCPU exceeds the ${fixed(host, 2)} vCPU host, so CPU is handed out in proportion to weight (${cfg.policy} policy). A container that cannot use its share (because of its cap) releases it to the others.`
+        : `Every container's eligible demand fits inside the ${fixed(host, 2)} vCPU host, so each receives exactly <code>min(demand, cap)</code> and ${fixed(host - eligibleTotal, 2)} vCPU stays idle.`}
+      </span></div>`;
+
+  // Memory explanation
+  const over = rows.filter((r) => r.mem_usage > r.mem_limit);
+  $("#mem-math").innerHTML = `
+    <div class="formula" style="margin-bottom:12px">
+      usage<sub>i</sub> &gt; limit<sub>i</sub> &nbsp;<span class="cm">→</span>&nbsp; pressure
+      &nbsp;&nbsp;|&nbsp;&nbsp;
+      usage<sub>i</sub> &gt; 1.25 × limit<sub>i</sub> &nbsp;<span class="cm">→</span>&nbsp; OOM
+      <br><span class="cm">limits are independent boundaries, never weighted shares</span>
+    </div>
+    ${rows
+      .map((r) => {
+        const p = (r.mem_usage / Math.max(1, r.mem_limit)) * 100;
+        const cls = p > 100 ? "crit" : p > 90 ? "warn" : "ok";
+        return `<div style="margin-bottom:10px">
+        <div class="spread" style="margin-bottom:4px">
+          <span class="small" style="display:flex;align-items:center;gap:7px"><span class="mini-dot" style="background:${r.color}"></span>${esc(r.name)}</span>
+          <span class="mono tiny" style="color:${p > 100 ? "#ff8b9c" : "#9aa8c7"}">${Math.round(r.mem_usage)} / ${Math.round(r.mem_limit)} MB · ${pct(p, 0)}</span>
+        </div>
+        <div class="meter thin ${cls}"><span style="width:${Math.min(100, p)}%"></span></div>
+      </div>`;
+      })
+      .join("")}
+    <div class="notice ${over.length ? "warn" : ""}" style="margin-top:12px">${over.length ? ICONS.alert : ICONS.info}
+      <span>${over.length
+        ? `${over.map((r) => `${esc(r.name)} is ${Math.round(r.mem_usage - r.mem_limit)} MB over its limit`).join("; ")}. OOM is simulated as a state change only — no real process is terminated.`
+        : `All ${rows.length} containers are inside their memory hard limits. Totals: ${Math.round(rows.reduce((a, r) => a + r.mem_usage, 0))} MB used of ${Math.round(cfg.host.memory)} MB host RAM.`}
+      </span></div>`;
+}
+
+/* ------------------------------------------------------------------ scrubber */
+function renderScrubber() {
+  const r = state.result;
+  const max = r.timeline.length - 1;
+  const input = $("#scrub");
+  input.max = String(max);
+  input.value = String(state.scrubStep);
+  input.style.setProperty("--pct", `${(state.scrubStep / Math.max(1, max)) * 100}%`);
+  const frame = r.timeline[state.scrubStep];
+  $("#scrub-label").textContent = `t${frame.step} / ${max}`;
+  $("#scrub-status").innerHTML = frame.cpu.contention
+    ? `<span class="badge warn">CPU contention</span>`
+    : `<span class="badge normal">No contention</span>`;
+}
+
+function setScrubStep(step) {
+  if (!state.result) return;
+  const max = state.result.timeline.length - 1;
+  state.scrubStep = Math.max(0, Math.min(max, step));
+  renderMetrics();
+  renderContainers();
+  renderHostBars();
+  renderTable();
+  renderSemantics();
+  renderScrubber();
+}
+
+function stopPlayback() {
+  state.playing = false;
+  if (state.playTimer) {
+    clearInterval(state.playTimer);
+    state.playTimer = null;
+  }
+  const btn = $("#play-btn");
+  if (btn) btn.innerHTML = ICONS.play;
+}
+
+function togglePlayback() {
+  if (!state.result) return;
+  if (state.playing) return stopPlayback();
+  state.playing = true;
+  $("#play-btn").innerHTML = ICONS.pause;
+  if (state.scrubStep >= state.result.timeline.length - 1) setScrubStep(0);
+  state.playTimer = setInterval(() => {
+    if (state.scrubStep >= state.result.timeline.length - 1) return stopPlayback();
+    setScrubStep(state.scrubStep + 1);
+  }, 620);
+}
+
+/* ------------------------------------------------------------------ compare */
+async function renderCompare() {
+  try {
+    const data = await engineCompare(state.config);
+    state.compare = data;
+    const host = state.config.host.cpu;
+    const names = data.containers;
+    const maxAlloc = Math.max(host, ...data.policies.flatMap((p) => Object.values(p.allocated))) || 1;
+
+    $("#compare-grid").innerHTML = data.policies
+      .map((p) => {
+        const label = { weighted: "Weighted fair-share", equal: "Equal share", priority: "Strict priority" }[p.policy] || p.policy;
+        const detail = {
+          weighted: "share ∝ weight",
+          equal: "every weight = 1",
+          priority: "highest weight first",
+        }[p.policy];
+        return `
+        <div class="cmp-card">
+          <h3>${label}</h3>
+          <div class="tiny faint mono" style="margin-bottom:8px">${detail} · util ${pct(p.utilisation_pct, 0)}</div>
+          ${names
+            .map((n, i) => {
+              const v = p.allocated[n] ?? 0;
+              return `<div class="cmp-row">
+                <span class="cmp-name">${esc(n)}</span>
+                <span class="cmp-bar"><span style="width:${(v / maxAlloc) * 100}%;background:${colorFor(i)}"></span></span>
+                <span class="cmp-val">${fixed(v, 2)}</span>
+              </div>`;
+            })
+            .join("")}
+        </div>`;
+      })
+      .join("");
+  } catch (err) {
+    $("#compare-grid").innerHTML = `<div class="empty-state">${esc(err.message)}</div>`;
+  }
+}
+
+/* ------------------------------------------------------------------- export */
+function exportReport() {
+  const r = state.result;
+  if (!r) return;
+  const frame = currentFrame();
+  const lines = [];
+  lines.push("CONTAINER RESOURCE ALLOCATION SIMULATOR — RUN REPORT");
+  lines.push("=".repeat(58));
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push(`Scenario profile : ${r.profile.label} (${r.profile.key})`);
+  lines.push(`CPU policy       : ${state.config.policy}`);
+  lines.push(`Host             : ${state.config.host.cpu} vCPU / ${state.config.host.memory} MB RAM`);
+  lines.push(`Steps            : ${r.steps}   Seed: ${state.config.seed}`);
+  lines.push("");
+  lines.push(`VIEWING STEP t${frame.step} of ${r.timeline.length - 1}`);
+  lines.push("-".repeat(58));
+  lines.push(
+    ["container".padEnd(14), "demand".padStart(7), "cap".padStart(6), "w".padStart(3), "alloc".padStart(7), "mem MB".padStart(14), "status"].join(" ")
+  );
+  frame.containers.forEach((c, i) => {
+    lines.push(
+      [
+        c.name.slice(0, 13).padEnd(14),
+        fixed(c.cpu_demand, 2).padStart(7),
+        fixed(c.cpu_cap, 2).padStart(6),
+        String(state.config.containers[i]?.weight ?? "-").padStart(3),
+        fixed(c.cpu_allocated, 2).padStart(7),
+        `${Math.round(c.mem_usage)}/${Math.round(c.mem_limit)}`.padStart(14),
+        c.status,
+      ].join(" ")
+    );
+  });
+  lines.push("");
+  lines.push(`CPU: ${fixed(frame.cpu.allocated, 2)} of ${fixed(frame.cpu.capacity, 2)} vCPU used (${pct(frame.cpu.utilisation_pct)})`);
+  lines.push(`Eligible demand: ${fixed(frame.cpu.eligible, 2)} vCPU  → contention: ${frame.cpu.contention}`);
+  lines.push(`Memory: ${Math.round(frame.memory.used)} of ${Math.round(frame.memory.capacity)} MB (${pct(frame.memory.pct)})`);
+  lines.push("");
+  lines.push("RUN SUMMARY");
+  lines.push("-".repeat(58));
+  const s = r.summary;
+  lines.push(`Verdict            : [${s.verdict.level.toUpperCase()}] ${s.verdict.title}`);
+  lines.push(`                     ${s.verdict.detail}`);
+  lines.push(`Avg CPU utilisation: ${pct(s.avg_cpu_utilisation_pct)}`);
+  lines.push(`Contention steps   : ${s.contention_steps}   Pressure steps: ${s.pressure_steps}   OOM steps: ${s.oom_steps}`);
+  lines.push(`Peak memory        : ${Math.round(s.peak_total_memory_mb)} MB`);
+  lines.push("");
+  lines.push("EVENT LOG");
+  lines.push("-".repeat(58));
+  (r.events || []).forEach((e) => lines.push(`t${String(e.step).padStart(2)} [${e.severity.toUpperCase().padEnd(8)}] ${e.message}`));
+  lines.push("");
+  lines.push("Model: e_i = min(d_i, q_i); weighted max-min fair share when Σe_i > C;");
+  lines.push("memory hard limits checked per container. OOM is simulated, no process is killed.");
+
+  const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `resource-run-${r.profile.key}-t${frame.step}.log`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("Report downloaded", a.download, "success");
+}
+
+/* -------------------------------------------------------------------- views */
+function switchView(view) {
+  $$(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
+  $$("#main-nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  if (view === "simulator" && state.result) {
+    requestAnimationFrame(() => {
+      charts.cpu?.measure();
+      charts.mem?.measure();
+      renderHostBars();
+    });
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* --------------------------------------------------------------------- init */
+async function init() {
+  $("#toasts").replaceChildren();
+
+  // static icons in the shell
+  $$("[data-icon]").forEach((node) => {
+    node.innerHTML = ICONS[node.dataset.icon] || "";
+  });
+
+  // tabs
+  $$("#main-nav button").forEach((btn) =>
+    btn.addEventListener("click", () => switchView(btn.dataset.view))
+  );
+
+  // form bindings
+  $("#run-btn").addEventListener("click", () => runSimulation());
+  $("#add-ctr").addEventListener("click", () => {
+    if (state.config.containers.length >= 12) return toast("Limit reached", "Up to 12 containers in the editor.");
+    const idx = state.config.containers.length + 1;
+    state.config.containers.push({
+      name: `service-${idx}`, demand: 0.8, cap: 1.0, weight: 1, mem_usage: 256, mem_limit: 512,
+    });
+    renderEditor();
+  });
+  $("#editor-list").addEventListener("input", () => {
+    updateEligiblePreview();
+    readConfigFromFormIntoState();
+  });
+  $("#editor-list").addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="remove"]');
+    if (!btn) return;
+    const row = btn.closest(".editor-row");
+    if (state.config.containers.length <= 1) return;
+    state.config.containers.splice(Number(row.dataset.index), 1);
+    renderEditor();
+  });
+
+  $("#policy-select").addEventListener("change", (e) => {
+    state.config.policy = e.target.value;
+    $$("#policy-seg button").forEach((b) => b.classList.toggle("active", b.dataset.policy === e.target.value));
+    runSimulation({ silent: true });
+  });
+  $$("#policy-seg button").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.config.policy = btn.dataset.policy;
+      $("#policy-select").value = btn.dataset.policy;
+      $$("#policy-seg button").forEach((b) => b.classList.toggle("active", b === btn));
+      runSimulation({ silent: true });
+    })
+  );
+  $("#profile-select").addEventListener("change", () => runSimulation({ silent: true }));
+
+  $("#scrub").addEventListener("input", (e) => {
+    stopPlayback();
+    setScrubStep(Number(e.target.value));
+  });
+  $("#play-btn").addEventListener("click", togglePlayback);
+  $("#export-btn").addEventListener("click", exportReport);
+
+  $("#steps-input").addEventListener("change", () => runSimulation({ silent: true }));
+  $("#seed-input").addEventListener("change", () => runSimulation({ silent: true }));
+  $("#host-cpu").addEventListener("change", () => runSimulation({ silent: true }));
+  $("#host-mem").addEventListener("change", () => runSimulation({ silent: true }));
+
+  // load metadata
+  try {
+    const meta = await getMeta();
+    state.presets = meta.presets;
+    state.profiles = meta.profiles;
+    state.policies = meta.policies;
+
+    $("#profile-select").innerHTML = state.profiles
+      .map((p) => `<option value="${p.key}">${esc(p.label)}</option>`)
+      .join("");
+    $("#policy-select").innerHTML = state.policies
+      .map((p) => `<option value="${p.key}">${esc(p.label)}</option>`)
+      .join("");
+    $$("#policy-seg button").forEach((b) => {
+      if (b.dataset.policy === "weighted") b.classList.add("active");
+    });
+
+    $("#profile-list").innerHTML = state.profiles
+      .map(
+        (p) => `<div class="module-card"><h3>${esc(p.label)}</h3><p>${esc(p.description)}</p></div>`
+      )
+      .join("");
+
+    setEnginePill();
+
+    state.config = defaultConfig();
+    renderPresets();
+    syncForm();
+    renderEditor();
+    await runSimulation({ silent: true });
+  } catch (err) {
+    console.error("[init] ", err);
+    toast("Startup failed", err.message);
+  }
+}
+
+function readConfigFromFormIntoState() {
+  state.config = { ...state.config, ...readConfigFromForm() };
+}
+
+document.addEventListener("DOMContentLoaded", init);
+
+// tells the boot guard in the page that the app really started
+window.__CRS_BOOTED__ = true;
+
+  return {};
+})();
+})();
+
+window.__CRS_BOOTED__ = true;
+</script>
 </body>
 </html>

@@ -69,11 +69,20 @@ pill reports which engine is live (`PYTHON ENGINE` / `LOCAL ENGINE`). Allocation
 memory results are numerically identical; `tests/test_js_parity.py` asserts this over
 300 random configurations (max delta 0.001, pure rounding).
 
-Rebuild the static bundle with:
+Rebuild with:
 
 ```bash
-python build_static.py     # writes _site/
+python build_static.py
 ```
+
+This writes **`index.html` at the repo root as a single self-contained file** — the CSS
+and the entire JS bundle are inlined. There is no module loading, no sub-resource
+fetching and no MIME-type dependency, so it works on GitHub Pages, on any static host,
+and even straight from disk (`file://`) for offline demos. A multi-file copy is also
+written to `_site/` for hosts that prefer separate assets.
+
+If the app ever fails to start, a visible error overlay replaces what would otherwise
+be a blank white page and prints the actual error.
 
 Deployment runs automatically via `.github/workflows/deploy-pages.yml` on every push
 to `main` (tests must pass first).
