@@ -48,6 +48,10 @@
 
 * { box-sizing: border-box; }
 
+svg { flex-shrink: 0; }
+span[data-icon] { display: inline-flex; align-items: center; }
+span[data-icon] > svg { width: 1em; height: 1em; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -426,6 +430,8 @@ button { font-family: var(--sans); }
 .metric.accent-red::before { background: var(--red); }
 .metric.accent-violet::before { background: var(--accent-2); }
 .metric:hover { border-color: var(--line-bright); }
+
+.metric-label svg { width: 13px; height: 13px; flex: 0 0 auto; }
 
 .metric-label {
   display: flex; align-items: center; gap: 6px;
@@ -1001,6 +1007,7 @@ tbody td.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
   color: #c2d4ff;
 }
 .notice svg { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 1px; color: var(--accent); }
+.notice span[data-icon] > svg { width: 14px; height: 14px; }
 .notice.warn {
   border-color: rgba(255, 181, 69, 0.26);
   background: rgba(255, 181, 69, 0.07);

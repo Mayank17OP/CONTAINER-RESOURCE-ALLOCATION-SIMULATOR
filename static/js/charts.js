@@ -247,9 +247,9 @@ export class LineChart {
       fill: "transparent", style: "cursor:crosshair",
     });
     this.svg.appendChild(this.hit);
-    if (this.hoverIndex >= 0) this.paintHover(this.hoverIndex);
 
     this.geom = { pad, innerW, innerH, n, x, y, w, height };
+    if (this.hoverIndex >= 0) this.paintHover(this.hoverIndex);
   }
 
   onMove(event) {
