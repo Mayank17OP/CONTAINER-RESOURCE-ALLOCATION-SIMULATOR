@@ -52,6 +52,34 @@ with `web 2.4/2.0 w2`, `database 2.5/2.0 w2`, `worker 1.5/1.0 w1` yields
 
 ---
 
+## Live demo (GitHub Pages)
+
+**https://mayank17op.github.io/CONTAINER-RESOURCE-ALLOCATION-SIMULATOR/**
+
+GitHub Pages can only serve static files, so the simulator ships **two
+interchangeable engines** that run the *same* model:
+
+| Mode | Engine | Used when |
+|---|---|---|
+| `server` | Python / Flask (`simulator/`) | running locally or on Render/Vercel |
+| `client` | Browser mirror (`static/js/engine.js`) | GitHub Pages, or any static host |
+
+The app probes `/api/health` at startup and picks one automatically — the header
+pill reports which engine is live (`PYTHON ENGINE` / `LOCAL ENGINE`). Allocation and
+memory results are numerically identical; `tests/test_js_parity.py` asserts this over
+300 random configurations (max delta 0.001, pure rounding).
+
+Rebuild the static bundle with:
+
+```bash
+python build_static.py     # writes _site/
+```
+
+Deployment runs automatically via `.github/workflows/deploy-pages.yml` on every push
+to `main` (tests must pass first).
+
+---
+
 ## Run it locally
 
 ```bash
@@ -72,7 +100,9 @@ python -m pytest -q      # 40 tests: allocation invariants, limits, API
 
 ## Deploy
 
-**Render (free tier, recommended)**
+**GitHub Pages (already configured)** — automatic on push to `main` via GitHub Actions.
+
+**Render (free tier, for the Python backend)**
 
 `render.yaml` is included. Create a Blueprint at
 <https://dashboard.render.com/blueprints>, select this repository, and Render runs:

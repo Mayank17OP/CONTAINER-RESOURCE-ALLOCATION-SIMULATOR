@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Container Resource Allocation Simulator · OS Lab</title>
+<meta name="robots" content="index,follow" />
+<meta name="description" content="Interactive simulator for per-container CPU caps, weighted fair-share allocation and memory hard limits. Operating Systems Lab project." />
+<meta name="theme-color" content="#080b14" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./static/css/styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%235b8cff'/%3E%3Cpath d='M12 5l6 3.5v7L12 19l-6-3.5v-7L12 5z' fill='none' stroke='white' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+<div class="shell">
+
+  <!-- ================= HEADER ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linejoin="round">
+          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
+          <path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">Container Resource Allocation Simulator</div>
+        <div class="brand-sub">Operating Systems Lab · CIC-353</div>
+      </div>
+    </div>
+
+    <div class="topbar-divider"></div>
+
+    <nav class="nav" id="main-nav">
+      <button data-view="simulator" class="active" type="button">Simulator</button>
+      <button data-view="model" type="button">Resource model</button>
+      <button data-view="project" type="button">Project</button>
+    </nav>
+
+    <div class="topbar-spacer"></div>
+
+    <span class="status-pill" id="engine-pill" data-mode="client" title="Detecting simulation engine..."><span class="dot"></span><span class="label">ENGINE ONLINE</span></span>
+    <button class="btn btn-ghost btn-sm" id="export-btn" type="button" data-icon="download" title="Download the current run as a text report"></button>
+  </header>
+
+  <main>
+
+    <!-- ============================================================
+         VIEW: SIMULATOR
+         ============================================================ -->
+    <section class="view active" id="view-simulator">
+      <div class="workspace">
+
+        <!-- ---------------- SIDEBAR ---------------- -->
+        <aside class="side-col">
+
+          <!-- presets -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="layers"></span>Scenario library</div>
+              <span class="tag" id="preset-count">6 presets</span>
+            </div>
+            <div class="panel-body" style="padding:11px">
+              <div class="preset-list" id="preset-list"></div>
+            </div>
+          </div>
+
+          <!-- host + workload -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="server"></span>Host &amp; workload</div>
+            </div>
+            <div class="panel-body">
+              <div class="editor-grid" style="grid-template-columns:1fr 1fr;gap:10px">
+                <div class="editor-field">
+                  <label for="host-cpu">Host vCPU</label>
+                  <input type="number" id="host-cpu" min="0.5" max="128" step="0.5" value="4" />
+                </div>
+                <div class="editor-field">
+                  <label for="host-mem">Host RAM (MB)</label>
+                  <input type="number" id="host-mem" min="64" max="1048576" step="256" value="4096" />
+                </div>
+              </div>
+
+              <div class="divider"></div>
+
+              <div class="field">
+                <span class="field-label">CPU policy</span>
+                <div class="segmented" id="policy-seg">
+                  <button type="button" data-policy="weighted">Weighted</button>
+                  <button type="button" data-policy="equal">Equal</button>
+                  <button type="button" data-policy="priority">Priority</button>
+                </div>
+                <select id="policy-select" class="hidden" aria-hidden="true" tabindex="-1">
+                  <option value="weighted">Weighted fair-share</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="profile-select">Workload profile</label>
+                <select id="profile-select"></select>
+              </div>
+
+              <div class="editor-grid" style="grid-template-columns:1fr 1fr;gap:10px">
+                <div class="editor-field">
+                  <label for="steps-input">Time steps</label>
+                  <input type="number" id="steps-input" min="1" max="60" step="1" value="10" />
+                </div>
+                <div class="editor-field">
+                  <label for="seed-input">Random seed</label>
+                  <input type="number" id="seed-input" min="0" max="999999" step="1" value="7" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- containers -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="box"></span>Containers</div>
+              <button class="btn btn-ghost btn-sm" id="add-ctr" type="button" data-icon="plus"></button>
+            </div>
+            <div class="panel-body" style="padding:12px">
+              <div class="editor-list" id="editor-list"></div>
+              <button class="btn btn-primary btn-block" id="run-btn" type="button" style="margin-top:12px">
+                <span>Run simulation</span>
+              </button>
+              <div class="field-hint center" style="margin-top:8px">
+                e<sub>i</sub> = min(demand, cap) · weights only matter under contention
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- ---------------- MAIN ---------------- -->
+        <div class="main-col">
+
+          <!-- headline metrics -->
+          <div class="metric-grid" id="metric-grid"></div>
+
+          <!-- verdict -->
+          <div class="verdict ok" id="verdict"></div>
+
+          <!-- live metrics + containers -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="box"></span>Container metrics <span class="faint" style="font-weight:500;letter-spacing:0">· live snapshot</span></div>
+              <span class="badge neutral" id="scrub-status"></span>
+            </div>
+            <div class="panel-body">
+              <div class="ctr-grid" id="ctr-grid"></div>
+            </div>
+            <div class="scrubber">
+              <button class="play-btn" id="play-btn" type="button" title="Play the run" data-icon="play"></button>
+              <span class="scrub-label" id="scrub-label">t0 / 10</span>
+              <input type="range" id="scrub" min="0" max="10" value="0" step="1" aria-label="Simulation time step" />
+              <span class="tiny faint mono">drag to replay</span>
+            </div>
+          </div>
+
+          <!-- charts -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="chart"></span>CPU allocation over time</div>
+              <span class="tiny faint mono">vCPU per step</span>
+            </div>
+            <div class="panel-body">
+              <div id="chart-cpu"></div>
+              <div class="chart-legend" id="legend-cpu"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="ram"></span>Memory usage over time</div>
+              <span class="tiny faint mono">MB per step</span>
+            </div>
+            <div class="panel-body">
+              <div id="chart-mem"></div>
+              <div class="chart-legend" id="legend-mem"></div>
+            </div>
+          </div>
+
+          <!-- composition + gauges -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="cpu"></span>Host capacity composition</div>
+            </div>
+            <div class="panel-body">
+              <div style="display:grid;grid-template-columns:1fr auto;gap:22px;align-items:center">
+                <div style="min-width:0">
+                  <div class="spread" style="margin-bottom:6px">
+                    <span class="small dim">CPU allocation</span>
+                    <span class="tiny mono faint">Σa<sub>i</sub> ≤ C</span>
+                  </div>
+                  <div id="stackbar-cpu"></div>
+                  <div class="spread" style="margin:16px 0 6px">
+                    <span class="small dim">Memory usage</span>
+                    <span class="tiny mono faint">per-container counters</span>
+                  </div>
+                  <div id="stackbar-mem"></div>
+                </div>
+                <div class="row gap-12">
+                  <div id="gauge-cpu" style="text-align:center"></div>
+                  <div id="gauge-mem" style="text-align:center"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- results table -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="server"></span>Allocation table</div>
+              <span class="tiny faint mono">values at the selected time step</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Container</th>
+                    <th class="num">demand</th>
+                    <th class="num">cap</th>
+                    <th class="num">weight</th>
+                    <th class="num">alloc vCPU</th>
+                    <th class="num">throttle</th>
+                    <th class="num">mem / limit</th>
+                    <th class="num">mem %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="result-tbody"></tbody>
+                <tfoot id="result-tfoot" style="font-size:11.5px"></tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- math -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="chart"></span>Why these numbers</div>
+              <span class="tiny faint mono">live derivation</span>
+            </div>
+            <div class="panel-body">
+              <div class="doc-grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">
+                <div>
+                  <h3 style="margin-bottom:10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)">CPU · weighted fair-share</h3>
+                  <div id="cpu-math"></div>
+                </div>
+                <div>
+                  <h3 style="margin-bottom:10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)">Memory · hard limits</h3>
+                  <div id="mem-math"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- policy comparison -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="layers"></span>Scheduler comparison</div>
+              <span class="tiny faint mono">same load, three policies</span>
+            </div>
+            <div class="panel-body">
+              <div class="cmp-grid" id="compare-grid"></div>
+              <div class="notice" style="margin-top:14px">
+                <span data-icon="info"></span>
+                <span>Each policy is run against the <strong>same</strong> workload and host. Weighted fair-share respects weight ratios, equal share ignores them, and strict priority serves the highest-weight container first — which starves low-weight workloads.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- event log -->
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title"><span data-icon="alert"></span>Event history</div>
+              <span class="tiny faint mono">scheduler &amp; memory manager</span>
+            </div>
+            <div class="log" id="event-log"></div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         VIEW: RESOURCE MODEL
+         ============================================================ -->
+    <section class="view" id="view-model">
+      <div class="hero">
+        <h1>How the simulation <span class="grad">actually computes</span> an allocation</h1>
+        <p>
+          Two independent mechanisms are applied on every time step. The CPU allocator answers
+          “how much processing capacity does each container receive?”. The memory manager answers
+          “is each container still inside its own hard boundary?”. They never share state.
+        </p>
+        <div class="hero-meta">
+          <span class="chip"><span data-icon="cpu"></span><strong>e<sub>i</sub> = min(d<sub>i</sub>, q<sub>i</sub>)</strong></span>
+          <span class="chip"><span data-icon="cpu"></span><strong>Σa<sub>i</sub> ≤ C</strong></span>
+          <span class="chip"><span data-icon="ram"></span><strong>a<sub>i</sub> ≤ e<sub>i</sub></strong></span>
+          <span class="chip"><span data-icon="alert"></span><strong>usage &gt; limit → pressure</strong></span>
+        </div>
+      </div>
+
+      <div class="doc-grid" style="margin-top:16px">
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="cpu"></span>CPU allocation rule</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <p><strong>Step 1 — eligible demand.</strong> A container cannot receive more than it
+              wants, and never more than its cap:</p>
+              <div class="formula" style="margin:10px 0">e<sub>i</sub> = min(d<sub>i</sub>, q<sub>i</sub>)</div>
+              <p><strong>Step 2 — contention test.</strong> If <code>Σeᵢ ≤ C</code> every container is
+              simply granted its eligible demand and the rest of the host sits idle.
+              Otherwise the host is <em>overcommitted</em> and capacity is shared in proportion to
+              the active weights.</p>
+              <p><strong>Step 3 — progressive filling.</strong> Each pass hands every active container
+              <code>wᵢ / Σw × remaining</code>, capped at what it still needs. A container that
+              saturates its eligible demand drops out and its unused slice is redistributed on the
+              next pass. The loop ends when capacity is exhausted or every container is satisfied.</p>
+              <div class="formula" style="margin:10px 0">
+                0 ≤ <span class="hl">a<sub>i</sub></span> ≤ e<sub>i</sub>
+                &nbsp;&nbsp;and&nbsp;&nbsp;
+                Σ<span class="hl">a<sub>i</sub></span> ≤ C
+              </div>
+              <p>This is the same max-min fairness idea Linux cgroup v2 applies through
+              <code>cpu.weight</code> and <code>cpu.max</code>.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="ram"></span>Memory hard limits</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <p>A memory limit is a <strong>boundary</strong>, not a share. It is checked per
+              container against that container's own counter, so one workload can never consume
+              another's allowance.</p>
+              <ul>
+                <li><code>usage ≥ 90% of limit</code> → <span class="badge near">near limit</span></li>
+                <li><code>usage &gt; limit</code> → <span class="badge pressure">memory pressure</span></li>
+                <li><code>usage &gt; 1.25 × limit</code> → <span class="badge oom">OOM (simulated)</span></li>
+              </ul>
+              <p style="margin-top:10px">An OOM here is a <strong>state change only</strong>. No process
+              is signalled and no kernel setting is touched — the simulator reports what the
+              kernel's OOM killer would have done.</p>
+              <div class="notice warn" style="margin-top:12px">
+                <span data-icon="alert"></span>
+                <span>The simulator never starts real containers and never changes host settings.
+                It is an accounting model, not a benchmark.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="layers"></span>Workload profiles</div></div>
+          <div class="panel-body">
+            <div class="module-grid" id="profile-list"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="chart"></span>Simulation cycle</div></div>
+          <div class="panel-body">
+            <div class="flow">
+              <div class="flow-node">
+                <div class="fn-num">01</div>
+                <div class="fn-title">Configure</div>
+                <div class="fn-sub">host + containers</div>
+              </div>
+              <div class="flow-arrow" data-icon="arrow"></div>
+              <div class="flow-node">
+                <div class="fn-num">02</div>
+                <div class="fn-title">Generate</div>
+                <div class="fn-sub">CPU / RAM demand</div>
+              </div>
+              <div class="flow-arrow" data-icon="arrow"></div>
+              <div class="flow-node">
+                <div class="fn-num">03</div>
+                <div class="fn-title">CPU allocator</div>
+                <div class="fn-sub">caps + weights</div>
+              </div>
+              <div class="flow-arrow" data-icon="arrow"></div>
+              <div class="flow-node">
+                <div class="fn-num">04</div>
+                <div class="fn-title">Memory manager</div>
+                <div class="fn-sub">hard-limit checks</div>
+              </div>
+              <div class="flow-arrow" data-icon="arrow"></div>
+              <div class="flow-node">
+                <div class="fn-num">05</div>
+                <div class="fn-title">Monitor</div>
+                <div class="fn-sub">metrics + events</div>
+              </div>
+            </div>
+            <div class="prose" style="margin-top:14px">
+              <p>The cycle repeats for every time step. Step <code>t0</code> is always the
+              configuration exactly as entered, so a run can be compared against the textbook
+              hand calculation.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================================
+         VIEW: PROJECT
+         ============================================================ -->
+    <section class="view" id="view-project">
+      <div class="hero">
+        <h1>Project <span class="grad">documentation</span></h1>
+        <p>
+          Container Resource Allocation Simulator — Operating Systems Lab (CIC-353),
+          Computer Science &amp; Engineering, Session 2026–2027.
+        </p>
+        <div class="hero-meta">
+          <span class="chip"><span data-icon="info"></span>Python 3 · Flask</span>
+          <span class="chip"><span data-icon="info"></span>Vanilla JS + SVG charts</span>
+          <span class="chip"><span data-icon="info"></span>No Docker required</span>
+        </div>
+      </div>
+
+      <div class="doc-grid" style="margin-top:16px">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="info"></span>Abstract</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <p>Multiple containers share a finite pool of CPU and RAM on one host. A busy workload
+              can slow down its neighbours, and a leaking one can exceed the memory it is permitted
+              to use. This project builds an <strong>interactive simulator</strong> that makes those
+              two effects visible and measurable.</p>
+              <p style="margin-top:8px">The simulator models a host with configurable vCPU and RAM
+              capacity, a set of containers each with CPU demand, a CPU cap, a relative weight and a
+              memory hard limit, and then executes a repeatable simulation cycle: generate workload →
+              apply CPU caps and weighted fair-share → check per-container memory limits → update the
+              dashboard, metrics and event history.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="layers"></span>Objectives</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <ul>
+                <li><strong>Model host capacity</strong> — configurable vCPU and RAM for the shared machine.</li>
+                <li><strong>Set container limits</strong> — demand, CPU cap, weight and memory limit per workload.</li>
+                <li><strong>Simulate contention</strong> — weighted, equal and strict-priority sharing with throttling.</li>
+                <li><strong>Monitor isolation</strong> — memory pressure/OOM alerts with a full event history.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="server"></span>System architecture</div></div>
+          <div class="panel-body">
+            <div class="module-grid">
+              <div class="module-card">
+                <div class="module-idx">INPUT</div>
+                <h3>Host &amp; container configuration</h3>
+                <p>Capacity, caps, weights and memory limits, validated before a run.</p>
+              </div>
+              <div class="module-card">
+                <div class="module-idx">ENGINE</div>
+                <h3>Workload generator</h3>
+                <p>Produces per-step CPU demand and memory creep from a seeded profile.</p>
+              </div>
+              <div class="module-card">
+                <div class="module-idx">SCHEDULER</div>
+                <h3>CPU allocator</h3>
+                <p>Applies caps, then weighted max-min fair-share when demand exceeds capacity.</p>
+              </div>
+              <div class="module-card">
+                <div class="module-idx">ISOLATION</div>
+                <h3>Memory manager</h3>
+                <p>Independent per-container counters checked against each hard limit.</p>
+              </div>
+              <div class="module-card">
+                <div class="module-idx">OUTPUT</div>
+                <h3>Monitoring dashboard</h3>
+                <p>Metrics, charts, throttling ratios, alerts and the event log.</p>
+              </div>
+            </div>
+            <div class="formula" style="margin-top:14px">
+              Configuration → Workload → CPU allocator / Memory manager → Dashboard
+              <br><span class="cm">data flow of one simulation cycle</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="chart"></span>Reference result</div></div>
+          <div class="panel-body">
+            <div class="prose" style="margin-bottom:10px">
+              <p>The worked example from the presentation, reproduced by the engine
+              (4 vCPU host, three containers):</p>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Container</th><th class="num">demand</th><th class="num">cap</th><th class="num">weight</th><th class="num">alloc</th><th class="num">mem use / limit</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><span class="table-name">web</span></td><td class="num mono">2.4</td><td class="num mono">2.0</td><td class="num mono">2</td><td class="num mono" style="color:#a9c2ff;font-weight:600">1.6</td><td class="num mono">700 / 1024</td><td><span class="badge throttled">CPU throttled</span></td></tr>
+                  <tr><td><span class="table-name">database</span></td><td class="num mono">2.5</td><td class="num mono">2.0</td><td class="num mono">2</td><td class="num mono" style="color:#a9c2ff;font-weight:600">1.6</td><td class="num mono">1800 / 2048</td><td><span class="badge throttled">CPU throttled</span></td></tr>
+                  <tr><td><span class="table-name">worker</span></td><td class="num mono">1.5</td><td class="num mono">1.0</td><td class="num mono">1</td><td class="num mono" style="color:#a9c2ff;font-weight:600">0.8</td><td class="num mono" style="color:#ff8b9c">1150 / 1024</td><td><span class="badge pressure">memory pressure</span></td></tr>
+                </tbody>
+                <tfoot><tr><td colspan="4" style="color:var(--text-faint);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em">Totals</td><td class="num mono" style="font-weight:700">4.0</td><td class="num mono">3650 / 4096</td><td><span class="badge warn">contention</span></td></tr></tfoot>
+              </table>
+            </div>
+            <div class="prose" style="margin-top:12px">
+              <p>Eligible demand is <code>min(2.4,2.0) + min(2.5,2.0) + min(1.5,1.0) = 5.0 vCPU</code>
+              against a 4.0 vCPU host: 25% overcommit. Weights 2 : 2 : 1 divide the 4.0 vCPU into
+              1.6 + 1.6 + 0.8. Worker's 1150 MB exceeds its 1024 MB limit by 126 MB, which is
+              reported as memory pressure while the other counters stay untouched.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="info"></span>Scope &amp; limitations</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <p><strong>What it demonstrates:</strong></p>
+              <ul>
+                <li>Host CPU and RAM configuration</li>
+                <li>Per-container CPU caps and relative weights</li>
+                <li>Weighted CPU sharing during contention</li>
+                <li>Memory hard limits and pressure alerts</li>
+                <li>Separate resource counters and event history</li>
+              </ul>
+              <p style="margin-top:12px"><strong>Current limitations:</strong></p>
+              <ul>
+                <li>Does not start real Docker containers</li>
+                <li>Does not change Linux kernel settings</li>
+                <li>CPU model is simplified weighted sharing</li>
+                <li>OOM is represented as a simulated state</li>
+                <li>Results are not physical host benchmarks</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="zap"></span>Conclusion &amp; future work</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <p><strong>Conclusion.</strong> CPU and memory isolation need separate but coordinated
+              controls. Weighted sharing distributes CPU under contention, CPU caps bound each
+              container's allocation, memory hard limits detect overuse, and separate counters
+              demonstrate accounting isolation.</p>
+              <p style="margin-top:12px"><strong>Future work:</strong></p>
+              <ul>
+                <li>Integrate Docker Engine and Linux cgroup v2 for real enforcement</li>
+                <li>Add time-series export and downloadable run logs</li>
+                <li>Compare additional CPU scheduling policies</li>
+                <li>Add memory reservation, swap and OOM policy options</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="info"></span>Implementation notes</div></div>
+          <div class="panel-body">
+            <dl class="kv-list">
+              <div class="kv"><dt>Backend</dt><dd>Python 3 · Flask JSON API</dd></div>
+              <div class="kv"><dt>Frontend</dt><dd>Vanilla JS (ES modules) · hand-built SVG charts</dd></div>
+              <div class="kv"><dt>Sim core</dt><dd>simulator/ — models, cpu_allocator, memory_manager, workload, engine</dd></div>
+              <div class="kv"><dt>Determinism</dt><dd>Seeded RNG so any run is reproducible</dd></div>
+              <div class="kv"><dt>API</dt><dd>/api/simulate · /api/allocate · /api/compare · /api/presets</dd></div>
+              <div class="kv"><dt>Tests</dt><dd>pytest suite covering allocator invariants &amp; limits</dd></div>
+            </dl>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title"><span data-icon="info"></span>References</div></div>
+          <div class="panel-body">
+            <div class="prose">
+              <ol style="margin:0;padding-left:18px">
+                <li>Docker Documentation, “Resource constraints,” Docker Engine Manual.</li>
+                <li>The Linux Kernel Documentation, “Control Group v2.”</li>
+                <li>Kubernetes Documentation, “Resource Management for Pods and Containers.”</li>
+                <li>A. Silberschatz, P. B. Galvin, G. Gagne, <em>Operating System Concepts</em>, 10th ed., Wiley, 2018.</li>
+                <li>A. S. Tanenbaum, H. Bos, <em>Modern Operating Systems</em>, 4th ed., Pearson, 2015.</li>
+                <li>Python Software Foundation, Python 3 Documentation and <code>unittest</code> module.</li>
+              </ol>
+            </div>
+            <div class="divider"></div>
+            <div class="prose small">
+              <p><strong>Presented by</strong> Vedang Goel · Samar Jaryal · Soumya Madhyan<br>
+              <strong>Under the guidance of</strong> Dr. Yashu Shanker</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="toasts"></div>
+
+<!-- Static build: no backend required. js/engine.js runs the identical
+     simulation model in the browser. Serve from any static host. -->
+<script type="module" src="./static/js/app.js"></script>
+</body>
+</html>

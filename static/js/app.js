@@ -3,6 +3,13 @@
    ========================================================================== */
 
 import { LineChart, renderStackBar, renderGauge, colorFor, hexToRgba } from "./charts.js";
+import {
+  engineMode,
+  detectEngine,
+  getMeta,
+  runSimulation as engineRun,
+  runCompare as engineCompare,
+} from "./client.js";
 
 /* ---------------------------------------------------------------- helpers */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -67,18 +74,18 @@ const state = {
 const charts = {};
 
 /* ------------------------------------------------------------------- API */
-async function api(path, payload) {
-  const opts = payload
-    ? {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    : {};
-  const res = await fetch(path, opts);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-  return data;
+/* All data access goes through client.js, which transparently uses the Python
+   backend when it is reachable and the in-browser engine otherwise. */
+
+function setEnginePill() {
+  const pill = $("#engine-pill");
+  if (!pill) return;
+  pill.querySelector(".label").textContent = engineMode.label;
+  pill.dataset.mode = engineMode.current;
+  pill.title =
+    engineMode.current === "server"
+      ? "Simulation is running in the Python/Flask backend"
+      : "No backend detected - the identical simulation model is running in your browser";
 }
 
 /* ----------------------------------------------------------------- toast */
@@ -236,7 +243,7 @@ async function runSimulation({ silent = false } = {}) {
   btn.innerHTML = `${ICONS.pulse}<span>Running…</span>`;
 
   try {
-    const result = await api("/api/simulate", state.config);
+    const result = await engineRun(state.config);
     state.result = result;
     state.scrubStep = result.timeline.length - 1;
     renderAll();
@@ -661,7 +668,7 @@ function togglePlayback() {
 /* ------------------------------------------------------------------ compare */
 async function renderCompare() {
   try {
-    const data = await api("/api/compare", state.config);
+    const data = await engineCompare(state.config);
     state.compare = data;
     const host = state.config.host.cpu;
     const names = data.containers;
@@ -840,7 +847,7 @@ async function init() {
 
   // load metadata
   try {
-    const meta = await api("/api/presets");
+    const meta = await getMeta();
     state.presets = meta.presets;
     state.profiles = meta.profiles;
     state.policies = meta.policies;
@@ -860,6 +867,8 @@ async function init() {
         (p) => `<div class="module-card"><h3>${esc(p.label)}</h3><p>${esc(p.description)}</p></div>`
       )
       .join("");
+
+    setEnginePill();
 
     state.config = defaultConfig();
     renderPresets();

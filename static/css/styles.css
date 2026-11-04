@@ -198,6 +198,16 @@ header.topbar {
   color: #7cf0c4;
   white-space: nowrap;
 }
+.status-pill[data-mode="client"] {
+  border-color: rgba(91, 140, 255, 0.4);
+  background: rgba(91, 140, 255, 0.09);
+  color: #b9cdff;
+}
+.status-pill[data-mode="client"] .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.2);
+}
+
 .status-pill .dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--green); box-shadow: 0 0 0 3px rgba(53, 211, 154, 0.18);
