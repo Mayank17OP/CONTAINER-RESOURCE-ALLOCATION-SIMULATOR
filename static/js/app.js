@@ -886,3 +886,6 @@ function readConfigFromFormIntoState() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// tells the boot guard in the page that the app really started
+window.__CRS_BOOTED__ = true;

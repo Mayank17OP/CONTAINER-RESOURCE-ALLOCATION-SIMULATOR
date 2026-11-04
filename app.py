@@ -33,9 +33,42 @@ def _build_config(payload: Dict[str, Any]) -> SimulationConfig:
     )
 
 
+BOOT_GUARD_SNIPPET = """<div id="boot-error" style="display:none;position:fixed;inset:0;z-index:9999;
+     background:#080b14;color:#e8eefc;font-family:system-ui,sans-serif;padding:28px">
+  <div style="max-width:760px;margin:6vh auto">
+    <h1 style="font-size:20px;margin:0 0 10px">The simulator could not start</h1>
+    <pre id="boot-error-detail" style="background:#0e1424;border:1px solid #1e2942;
+         border-radius:10px;padding:14px;font-size:12px;color:#ffb545;white-space:pre-wrap"></pre>
+  </div>
+</div>
+<script>
+  window.addEventListener("error", function (e) {
+    var b = document.getElementById("boot-error");
+    if (!b) return;
+    document.getElementById("boot-error-detail").textContent = (e.message || "Script error");
+    b.style.display = "block";
+  });
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      if (!window.__CRS_BOOTED__) {
+        var b = document.getElementById("boot-error");
+        if (b) {
+          document.getElementById("boot-error-detail").textContent =
+            "The application script did not start.";
+          b.style.display = "block";
+        }
+      }
+    }, 3500);
+  });
+</script>"""
+
+
 @app.get("/")
 def index():
-    return send_from_directory(STATIC_DIR, "index.html")
+    """Serve the app, with a boot guard so a JS failure is never a white screen."""
+    with open(os.path.join(STATIC_DIR, "index.html"), encoding="utf-8") as fh:
+        html = fh.read()
+    return html.replace("<body>", "<body>" + BOOT_GUARD_SNIPPET, 1)
 
 
 @app.get("/api/health")
