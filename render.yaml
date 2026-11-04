@@ -1,0 +1,13 @@
+# Render deployment — free tier, no Docker needed.
+# Create a Blueprint at https://dashboard.render.com/blueprints and point it at this repo.
+services:
+  - type: web
+    name: container-resource-simulator
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.2"
