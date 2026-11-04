@@ -7,3 +7,8 @@ node_modules/
 .DS_Store
 *.log
 .vercel
+
+# static Pages build output
+_site/
+tests/.parity_input.json
+tests/parity_run.py
